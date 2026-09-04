@@ -11,6 +11,11 @@ local FLUIDS = {
 --  { target = "cetane-boosted diesel", label = "Cetane Diesel", max = 1000000000, color = 0x33FF99 }, -- Mint
 }
 
+-- Item Configuration Array
+local ITEMS = {
+  { target = "Industrial TNT", label = "Industrial TNT", max = 10000, color = 0xFFFFFF },
+}
+
 -- Color Definitions for thresholds (Hex format for OpenComputers Tier 2/3 GPU)
 local COLOR_WHITE  = 0xFFFFFF
 local COLOR_RED    = 0xFF3333 -- <= 10%
@@ -57,9 +62,24 @@ while true do
     end
   end
 
-  -- Dynamic UI layout calculation (4 lines per fluid block including the empty line)
+  -- Fetch network items once per loop
+  local itemAmounts = {}
+  local itemSuccess, networkItems = pcall(function() return me.getItemsInNetwork() end)
+
+  if itemSuccess and type(networkItems) == "table" then
+    for _, item in pairs(networkItems) do
+      local name = string.lower(item.label or item.name or "")
+      for i, cfg in ipairs(ITEMS) do
+        if string.find(name, string.lower(cfg.target), 1, true) then
+          itemAmounts[i] = (itemAmounts[i] or 0) + (item.size or item.amount or 0)
+        end
+      end
+    end
+  end
+
+  -- Dynamic UI layout calculation (4 lines per block including the empty line)
   local linesPerFluid = 4
-  local totalUiHeight = 3 + (#FLUIDS * linesPerFluid) + 1
+  local totalUiHeight = 3 + ((#FLUIDS + #ITEMS) * linesPerFluid) + 1
   local startY = math.max(1, math.floor((h - totalUiHeight) / 2))
 
   local function drawCentered(yPos, text, color)
@@ -123,6 +143,46 @@ while true do
     )
 
     -- Line 4: Blank line separator
+    gpu.fill(1, currentY + 3, w, 1, " ")
+
+    currentY = currentY + linesPerFluid
+  end
+
+  -- Render Item Array
+  for i, cfg in ipairs(ITEMS) do
+    local currentAmount = itemAmounts[i] or 0
+    local ratio = math.min(currentAmount / cfg.max, 1.0)
+    local percentage = ratio * 100
+    local filledChars = math.floor(ratio * BAR_WIDTH)
+    local emptyChars = BAR_WIDTH - filledChars
+
+    local bar = "[" .. string.rep("=", filledChars) .. string.rep(".", emptyChars) .. "]"
+    local statusColor = getStatusColor(percentage)
+
+    local pctStr = string.format("%.2f%%", percentage)
+    local separatorStr = " : "
+    local totalLen = string.len(cfg.label) + string.len(separatorStr) + string.len(pctStr)
+    local startX = math.floor((w - totalLen) / 2) + 1
+
+    gpu.fill(1, currentY, w, 1, " ")
+
+    gpu.setForeground(cfg.color or COLOR_WHITE)
+    gpu.set(startX, currentY, cfg.label)
+
+    gpu.setForeground(COLOR_WHITE)
+    gpu.set(startX + string.len(cfg.label), currentY, separatorStr)
+
+    gpu.setForeground(statusColor)
+    gpu.set(startX + string.len(cfg.label) + string.len(separatorStr), currentY, pctStr)
+
+    drawCentered(currentY + 1, bar, statusColor)
+
+    drawCentered(
+      currentY + 2,
+      string.format("Stored: %s / %s items", formatNumber(currentAmount), formatNumber(cfg.max)),
+      statusColor
+    )
+
     gpu.fill(1, currentY + 3, w, 1, " ")
 
     currentY = currentY + linesPerFluid
