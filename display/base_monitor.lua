@@ -11,9 +11,9 @@ local FLUIDS = {
 --  { target = "cetane-boosted diesel", label = "Cetane Diesel", max = 1000000000, color = 0x33FF99 }, -- Mint
 }
 
--- Item Configuration Array
+-- Item Configuration Array (use ctrl+X to copy item id from nei)
 local ITEMS = {
-  { name = "IC2:itemTNT", damage = 0, label = "Industrial TNT", max = 10000, color = 0xFFFFFF },
+  { name = "IC2:blockITNT", damage = 0, label = "Industrial TNT", max = 10000, color = 0xFFFFFF },
 }
 
 -- Color Definitions for thresholds (Hex format for OpenComputers Tier 2/3 GPU)
