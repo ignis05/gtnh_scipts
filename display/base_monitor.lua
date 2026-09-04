@@ -3,15 +3,18 @@ local os = require("os")
 local gpu = component.gpu
 local me = component.me_interface
 
--- Fluid Configuration Array
+-- Adding items/fluids:
+-- 1. Use ctrl+X to copy item id from nei
+-- 2. If id ends with slash and number (this will always be the case for fluids), set the part after slash as damage in the config array
+-- ex: see below, nitrobenzene copied as "gregtech:gt.GregTech_FluidDisplay/1184"
+
+-- Fluid Configuration Array 
 local FLUIDS = {
-  { target = "nitrobenzene", label = "Nitrobenzene", max = 2000000000, color = 0x744700 }, -- Brown
---  { target = "sulfuric acid", label = "Sulfuric Acid", max = 1000000000, color = 0xFF9933 }, -- Orange
---  { target = "lubricant", label = "Lubricant", max = 500000000, color = 0xFFFF66 }, -- Yellow
---  { target = "cetane-boosted diesel", label = "Cetane Diesel", max = 1000000000, color = 0x33FF99 }, -- Mint
+  { name = "gregtech:gt.GregTech_FluidDisplay", damage = 1184, label = "Nitrobenzene", max = 2000000000, color = 0x744700 }, -- Brown
+  { name = "gregtech:gt.GregTech_FluidDisplay", damage = 87, label = "Blood", max = 50000, color = 0xFF0000 }, -- Red
 }
 
--- Item Configuration Array (use ctrl+X to copy item id from nei)
+-- Item Configuration Array
 local ITEMS = {
   { name = "IC2:blockITNT", damage = 0, label = "Industrial TNT", max = 10000, color = 0xFFFFFF },
 }
@@ -50,7 +53,12 @@ while true do
   -- Query only the configured fluids to avoid creating a full network snapshot.
   local fluidAmounts = {}
   for i, cfg in ipairs(FLUIDS) do
-    local success, fluid = pcall(function() return me.getFluidInNetwork(cfg.target) end)
+    local success, fluid = pcall(function()
+      if cfg.damage ~= nil then
+        return me.getFluidInNetwork({ id = cfg.damage })
+      end
+      return me.getFluidInNetwork(cfg.target or cfg.name)
+    end)
     if success and type(fluid) == "table" then
       fluidAmounts[i] = fluid.amount or 0
     end
