@@ -50,44 +50,71 @@ function checkAndRestock()
   local storedItems = me.getItemsInNetwork()
   if not storedItems then return end
 
-  print("================ [Stock Check] ================")
-  local requestMade = false
-
-  for _, spec in ipairs(maintainList) do
-    local currentAmount = 0
-    
-    -- Find total quantity currently in network by display name
-    for _, item in ipairs(storedItems) do
-      if item.label == spec.label then
-        currentAmount = item.size
-        break
-      end
+  -- Build a hash map for fast item lookup by label
+  local itemMap = {}
+  for _, item in ipairs(storedItems) do
+    if item.label then
+      itemMap[item.label] = item.size
     end
+  end
 
-    -- Print current stock levels
-    print(string.format("%-32s | %d/%d", spec.label, currentAmount, spec.target))
+  -- Collect current stock status and calculate stock ratio (percentage)
+  local statusList = {}
+  for _, spec in ipairs(maintainList) do
+    local currentAmount = itemMap[spec.label] or 0
+    local ratio = currentAmount / spec.target
+    table.insert(statusList, {
+      spec = spec,
+      current = currentAmount,
+      ratio = ratio
+    })
+  end
 
-    -- Request crafting order if below target (limit 1 request per loop pass)
-    if currentAmount < spec.target and not requestMade then
-      -- Pass filter directly to OpenComputers AE2 driver
-      local craftables = me.getCraftables({label = spec.label})
-      
-      if craftables and #craftables > 0 then
-        local missing = spec.target - currentAmount
-        local amountToOrder = math.min(missing, spec.batch)
-        
-        print(string.format("  ==> Requesting %dx '%s'...", amountToOrder, spec.label))
-        
-        local status = craftables[1].request(amountToOrder)
-        if status then
-          print("  ==> Order successfully submitted to AE2 CPU.")
-          requestMade = true
-        else
-          print("  [!] Request failed (missing ingredients or CPU allocation failure).")
-        end
+  -- Sort list by available stock percentage ascending (lowest % first)
+  table.sort(statusList, function(a, b)
+    if a.ratio == b.ratio then
+      return a.spec.label < b.spec.label
+    end
+    return a.ratio < b.ratio
+  end)
+
+  print("================ [Stock Check (Priority Order)] ================")
+
+  local targetToCraft = nil
+
+  for _, item in ipairs(statusList) do
+    local spec = item.spec
+    local pct = math.floor(item.ratio * 100)
+    
+    -- Print current stock levels and percentages
+    print(string.format("%-32s | %4d/%-4d (%3d%%)", spec.label, item.current, spec.target, pct))
+
+    -- Pick the item with the lowest stock percentage that is under target
+    if item.current < spec.target and not targetToCraft then
+      targetToCraft = item
+    end
+  end
+
+  -- Dispatch craft order for the highest-priority item
+  if targetToCraft then
+    local spec = targetToCraft.spec
+    local missing = spec.target - targetToCraft.current
+    local amountToOrder = math.min(missing, spec.batch)
+
+    print("\n------------------------------------------------")
+    print(string.format("  ==> Requesting %dx '%s' (Stock: %d%%)...", 
+          amountToOrder, spec.label, math.floor(targetToCraft.ratio * 100)))
+
+    local craftables = me.getCraftables({label = spec.label})
+    if craftables and #craftables > 0 then
+      local status = craftables[1].request(amountToOrder)
+      if status then
+        print("  ==> Order successfully submitted to AE2 CPU.")
       else
-        print(string.format("  [!] NO PATTERN FOUND in ME system for '%s'", spec.label))
+        print("  [!] Request failed (missing ingredients or CPU allocation failure).")
       end
+    else
+      print(string.format("  [!] NO PATTERN FOUND in ME system for '%s'", spec.label))
     end
   end
 end
