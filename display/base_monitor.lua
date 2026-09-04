@@ -13,7 +13,7 @@ local FLUIDS = {
 
 -- Item Configuration Array
 local ITEMS = {
-  { target = "Industrial TNT", label = "Industrial TNT", max = 10000, color = 0xFFFFFF },
+  { name = "IC2:itemTNT", damage = 0, label = "Industrial TNT", max = 10000, color = 0xFFFFFF },
 }
 
 -- Color Definitions for thresholds (Hex format for OpenComputers Tier 2/3 GPU)
@@ -47,33 +47,23 @@ while true do
   local w, h = gpu.getResolution()
   local BAR_WIDTH = math.max(10, w - 10)
 
-  -- Fetch network fluids once per loop
+  -- Query only the configured fluids to avoid creating a full network snapshot.
   local fluidAmounts = {}
-  local success, networkFluids = pcall(function() return me.getFluidsInNetwork() end)
-  
-  if success and type(networkFluids) == "table" then
-    for _, fluid in pairs(networkFluids) do
-      local name = string.lower(fluid.label or fluid.name or "")
-      for i, cfg in ipairs(FLUIDS) do
-        if string.find(name, string.lower(cfg.target)) then
-          fluidAmounts[i] = (fluidAmounts[i] or 0) + (fluid.amount or 0)
-        end
-      end
+  for i, cfg in ipairs(FLUIDS) do
+    local success, fluid = pcall(function() return me.getFluidInNetwork(cfg.target) end)
+    if success and type(fluid) == "table" then
+      fluidAmounts[i] = fluid.amount or 0
     end
   end
 
-  -- Fetch network items once per loop
+  -- Query only the configured items to avoid materializing every stored item.
   local itemAmounts = {}
-  local itemSuccess, networkItems = pcall(function() return me.getItemsInNetwork() end)
-
-  if itemSuccess and type(networkItems) == "table" then
-    for _, item in pairs(networkItems) do
-      local name = string.lower(item.label or item.name or "")
-      for i, cfg in ipairs(ITEMS) do
-        if string.find(name, string.lower(cfg.target), 1, true) then
-          itemAmounts[i] = (itemAmounts[i] or 0) + (item.size or item.amount or 0)
-        end
-      end
+  for i, cfg in ipairs(ITEMS) do
+    local success, item = pcall(function()
+      return me.getItemInNetwork(cfg.name, cfg.damage or 0, cfg.nbt or "{}")
+    end)
+    if success and type(item) == "table" then
+      itemAmounts[i] = item.size or item.amount or 0
     end
   end
 
