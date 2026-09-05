@@ -92,7 +92,7 @@ while true do
 
     -- Dynamic UI layout calculation (4 lines per block including the empty line)
     local linesPerFluid = 4
-    local startY = 1
+    local startY = 0
 
     local function drawCentered(yPos, text, color)
         gpu.setForeground(color or COLOR_WHITE)
