@@ -92,8 +92,7 @@ while true do
 
     -- Dynamic UI layout calculation (4 lines per block including the empty line)
     local linesPerFluid = 4
-    local totalUiHeight = 3 + ((#FLUIDS + #ITEMS) * linesPerFluid) + 1
-    local startY = math.max(1, math.floor((h - totalUiHeight) / 2))
+    local startY = 1
 
     local function drawCentered(yPos, text, color)
         gpu.setForeground(color or COLOR_WHITE)
