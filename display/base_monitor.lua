@@ -11,7 +11,7 @@ local me = component.me_interface
 -- Fluid Configuration Array 
 local FLUIDS = {
   { name = "gregtech:gt.GregTech_FluidDisplay", damage = 1184, label = "Nitrobenzene", max = 2000000000, color = 0x744700 }, -- Brown
-  { name = "gregtech:gt.GregTech_FluidDisplay", damage = 87, label = "Blood", max = 50000, color = 0xFF0000 }, -- Red
+  { name = "gregtech:gt.GregTech_FluidDisplay", damage = 87, label = "Blood", max = 32000000, color = 0xFF0000 }, -- Red
 }
 
 -- Item Configuration Array
