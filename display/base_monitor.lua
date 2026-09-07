@@ -37,6 +37,7 @@ local COLOR_WHITE = 0xFFFFFF
 local COLOR_RED = 0xFF3333 -- <= 10%
 local COLOR_ORANGE = 0xFFAA00 -- <= 30%
 local COLOR_GREEN = 0x33FF33 -- > 30%
+local CHECK_INTERVAL = 60
 
 -- set resolution to make text large assuming big screen is used
 gpu.setResolution(80, 25)
@@ -58,6 +59,9 @@ end
 -- Clear the whole screen once at startup
 local initW, initH = gpu.maxResolution()
 gpu.fill(1, 1, initW, initH, " ")
+
+local previousFluidAmounts = {}
+local previousItemAmounts = {}
 
 while true do
     local w, h = gpu.getResolution()
@@ -89,6 +93,23 @@ while true do
             itemAmounts[i] = item.size or item.amount or 0
         end
     end
+
+    local fluidChanges = {}
+    for i, amount in ipairs(fluidAmounts) do
+        if previousFluidAmounts[i] ~= nil then
+            fluidChanges[i] = amount - previousFluidAmounts[i]
+        end
+    end
+
+    local itemChanges = {}
+    for i, amount in ipairs(itemAmounts) do
+        if previousItemAmounts[i] ~= nil then
+            itemChanges[i] = amount - previousItemAmounts[i]
+        end
+    end
+
+    previousFluidAmounts = fluidAmounts
+    previousItemAmounts = itemAmounts
 
     -- Dynamic UI layout calculation (4 lines per block including the empty line)
     local linesPerFluid = 4
@@ -151,10 +172,19 @@ while true do
         drawCentered(currentY + 2,
             string.format("Stored: %s / %s mB", formatNumber(currentAmount), formatNumber(cfg.max)), statusColor)
 
-        -- Line 4: Blank line separator
-        gpu.fill(1, currentY + 3, w, 1, " ")
+        local change = fluidChanges[i]
+        if change ~= nil then
+            local sign = change >= 0 and "+" or "-"
+            local changeColor = change > 0 and COLOR_GREEN or change < 0 and COLOR_RED or statusColor
+            drawCentered(currentY + 3,
+                string.format("Change: %s %s mB / min", sign, formatNumber(math.abs(change))), changeColor)
+        else
+            drawCentered(currentY + 3, "Change: -- mB / min", COLOR_WHITE)
+        end
 
-        currentY = currentY + linesPerFluid
+        gpu.fill(1, currentY + 4, w, 1, " ")
+
+        currentY = currentY + linesPerFluid + 1
     end
 
     -- Render Item Array
@@ -189,12 +219,22 @@ while true do
         drawCentered(currentY + 2,
             string.format("Stored: %s / %s items", formatNumber(currentAmount), formatNumber(cfg.max)), statusColor)
 
-        gpu.fill(1, currentY + 3, w, 1, " ")
+        local change = itemChanges[i]
+        if change ~= nil then
+            local sign = change >= 0 and "+" or "-"
+            local changeColor = change > 0 and COLOR_GREEN or change < 0 and COLOR_RED or statusColor
+            drawCentered(currentY + 3,
+                string.format("Change: %s %s items / min", sign, formatNumber(math.abs(change))), changeColor)
+        else
+            drawCentered(currentY + 3, "Change: -- items / min", COLOR_WHITE)
+        end
 
-        currentY = currentY + linesPerFluid
+        gpu.fill(1, currentY + 4, w, 1, " ")
+
+        currentY = currentY + linesPerFluid + 1
     end
 
     gpu.setForeground(COLOR_WHITE)
 
-    os.sleep(2)
+    os.sleep(CHECK_INTERVAL)
 end
