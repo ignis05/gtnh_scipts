@@ -156,119 +156,45 @@ local function drawCenteredText(x, y, text, color, fillWidth)
   gpu.set(x, y, text)
 end
 
-local function addMachineCandidate(candidates, device)
-  if device == nil then
-    return
+local function listGTMachines()
+  local machines = {}
+  local seen = {}
+
+  local function addMachine(machine)
+    if machine == nil then
+      return
+    end
+
+    local address = machine.address
+    if address == nil or seen[address] then
+      return
+    end
+
+    seen[address] = true
+    table.insert(machines, machine)
   end
-
-  local address = device.address or tostring(device)
-  if candidates[address] then
-    return
-  end
-
-  candidates[address] = device
-end
-
-local function getGTMachineCandidates()
-  local candidates = {}
 
   local direct = component.gt_machine
   if type(direct) == "table" then
     if direct.address ~= nil then
-      addMachineCandidate(candidates, direct)
+      addMachine(direct)
     else
       for _, value in pairs(direct) do
         if type(value) == "table" and value.address ~= nil then
-          addMachineCandidate(candidates, value)
+          addMachine(value)
         end
       end
     end
   end
 
-  local ok, listResult = pcall(function()
-    for address in component.list("gt_machine") do
-      local proxy = component.proxy(address)
-      if proxy ~= nil then
-        addMachineCandidate(candidates, proxy)
-      end
-    end
-  end)
-
-  if not ok then
-    return {}
-  end
-
-  local result = {}
-  for _, device in pairs(candidates) do
-    table.insert(result, device)
-  end
-  return result
-end
-
-local function readValueFromDevice(device, names)
-  for _, name in ipairs(names) do
-    if device[name] ~= nil and type(device[name]) == "function" then
-      local ok, value = pcall(device[name])
-      if ok and value ~= nil then
-        return value
-      end
-    end
-  end
-  return nil
-end
-
-local function collectLSCs()
-  local final = {}
-  local seen = {}
-
-  local function addDevice(device)
-    if device == nil then
-      return
-    end
-
-    local address = device.address or tostring(device)
-    if seen[address] then
-      return
-    end
-
-    seen[address] = true
-
-    local stored = readValueFromDevice(device, {
-      "getEUStored",
-      "getStoredEU",
-      "getEnergyStored",
-      "getEU",
-      "getCharge",
-      "getPowerStored",
-    })
-    local max = readValueFromDevice(device, {
-      "getEUCapacity",
-      "getMaxEUStore",
-      "getCapacity",
-      "getMaxEU",
-      "getMaxEnergyStored",
-      "getMaxCharge",
-      "getMaxPowerStored",
-    })
-
-    if stored ~= nil and max ~= nil then
-      table.insert(final, {
-        address = address,
-        label = device.label or device.name or "LSC",
-        stored = asNumber(stored, 0),
-        max = math.max(asNumber(max, 1), 1),
-      })
+  for address in component.list("gt_machine") do
+    local proxy = component.proxy(address)
+    if proxy ~= nil then
+      addMachine(proxy)
     end
   end
 
-  for _, device in ipairs(getGTMachineCandidates()) do
-    addDevice(device)
-  end
-
-  table.sort(final, function(a, b)
-    return a.stored > b.stored
-  end)
-  return final
+  return machines
 end
 
 local function getBoundPlayerName(glasses)
@@ -400,18 +326,39 @@ local function drawHudForTerminal(glasses, config, storage)
 end
 
 local function getPrimaryLSC()
-  local candidates = collectLSCs()
-  if #candidates == 0 then
-    return {
-      stored = 0,
-      max = 1,
-      label = "No LSC",
-      playerName = "Unknown",
-    }
+  local best = nil
+
+  for _, machine in ipairs(listGTMachines()) do
+    if type(machine.getEUStored) == "function" and type(machine.getEUCapacity) == "function" then
+      local okStored, stored = pcall(machine.getEUStored)
+      local okCapacity, capacity = pcall(machine.getEUCapacity)
+
+      if okStored and okCapacity then
+        stored = asNumber(stored, 0)
+        capacity = math.max(asNumber(capacity, 1), 1)
+
+        if best == nil or stored > best.stored then
+          best = {
+            stored = stored,
+            max = capacity,
+            label = (safeCall(function() return machine.getName() end) or "LSC"),
+            playerName = "Unknown",
+          }
+        end
+      end
+    end
   end
 
-  local chosen = candidates[1]
-  return chosen
+  if best ~= nil then
+    return best
+  end
+
+  return {
+    stored = 0,
+    max = 1,
+    label = "No LSC",
+    playerName = "Unknown",
+  }
 end
 
 local function main()
