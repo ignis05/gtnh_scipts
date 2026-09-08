@@ -66,14 +66,18 @@ local function setupGlass(glasses)
     local b2 = config.borderTop
     local y = config.resolution[2] / config.GUIscale
 
-    local borderColor = 0x2B2B2B
-    local panelColor = 0x2D5BFF
-    local accentColor = 0x60E4FF
-    local textColor = 0xF5F7FF
-    local warningColor = 0xFFB347
+    local borderColor = 0x181828 -- dark gray
+    local panelColor = 0x00A6FF -- light blue
+    local accentColor = 0x303850 -- dark blue
+    local textColor = 0x000000 -- black
+    local warningColor = 0xFF0000 -- red
 
+
+    -- background panel
     newQuad(glasses, {0, y - b1}, {3.5 * h + l + b2 + 1, y - b1}, {2.5 * h + l + 1, y - b1 - h - b2}, {0, y - b1 - h - b2}, borderColor)
+    -- bottom bar
     newQuad(glasses, {0, y}, {3.5 * h + l + b2 + 1, y}, {3.5 * h + l + b2 + 1, y - b1}, {0, y - b1}, borderColor)
+    -- blue bar
     newQuad(glasses, {3.5 * h, y - b1}, {3.5 * h + l, y - b1}, {2.5 * h + l, y - b1 - h}, {2.5 * h, y - b1 - h}, panelColor)
 
     local ui = {}
@@ -126,7 +130,7 @@ local function main()
                 ui.textPercent.setText(string.format("%.1f%%", percentage * 100))
                 ui.textCurr.setText(formatNumber(currentEnergy) .. " EU")
                 ui.textMax.setText(formatNumber(maxCapacity) .. " EU")
-                ui.textStatus.setText(string.format("IN %s EU/t  OUT %s EU/t", formatNumber(avgEnergyInput), formatNumber(avgEnergyOutput)))
+                -- ui.textStatus.setText(string.format("IN %s EU/t  OUT %s EU/t", formatNumber(avgEnergyInput), formatNumber(avgEnergyOutput)))
             end
         end
 
