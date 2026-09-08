@@ -9,7 +9,49 @@ local config = {
     borderBottom = 2,
     borderTop = 2,
     fontSize = 1,
+    colors = {
+        border = 0x181828,  -- dark panel
+        empty = 0x5A5A68,   -- gray unfilled capacity
+        fill = 0x00A6FF,    -- cyan fill / percent
+        text = 0x000000,    -- black
+        warning = 0xFF0000, -- red
+    },
 }
+
+-- Keys are Minecraft usernames bound to terminal glasses.
+-- Only list fields that differ from `config`.
+local playerConfig = {
+    ["monolither"] = { resolution = { 2560, 1440 }, GUIscale = 4 },
+}
+
+local function copyTable(src)
+    local dst = {}
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            dst[k] = copyTable(v)
+        else
+            dst[k] = v
+        end
+    end
+    return dst
+end
+
+local function mergeConfig(playerName)
+    local cfg = copyTable(config)
+    local overrides = playerName and playerConfig[playerName]
+    if overrides then
+        for k, v in pairs(overrides) do
+            if type(v) == "table" and type(cfg[k]) == "table" then
+                for k2, v2 in pairs(v) do
+                    cfg[k][k2] = v2
+                end
+            else
+                cfg[k] = v
+            end
+        end
+    end
+    return cfg
+end
 
 local function RGB(hex)
     local r = ((hex >> 16) & 0xFF) / 255.0
@@ -68,12 +110,12 @@ local function updateTextLabel(label, text, baseX, baseY, scale, alignRight)
     end
 end
 
-local function layout()
-    local l = config.length
-    local h = config.height
-    local b1 = config.borderBottom
-    local b2 = config.borderTop
-    local y = config.resolution[2] / config.GUIscale
+local function layout(cfg)
+    local l = cfg.length
+    local h = cfg.height
+    local b1 = cfg.borderBottom
+    local b2 = cfg.borderTop
+    local y = cfg.resolution[2] / cfg.GUIscale
 
     local barLeftX = 3.5 * h
     local barRightX = barLeftX + l
@@ -100,20 +142,15 @@ local function layout()
         percentY = textY - 2,
         currTextX = barLeftX + 2,
         maxTextX = barRightX - 2,
-        statusY = panelBottomY - 3 * config.fontSize,
+        statusY = panelBottomY - 3 * cfg.fontSize,
     }
 end
 
-local function setupGlass(glasses)
+local function setupGlass(glasses, cfg)
     glasses.removeAll()
 
-    local pos = layout()
-
-    local borderColor = 0x181828  -- dark panel
-    local emptyColor = 0x5A5A68   -- gray unfilled capacity
-    local fillColor = 0x00A6FF    -- cyan fill / percent
-    local textColor = 0x000000    -- black
-    local warningColor = 0xFF0000 -- red
+    local pos = layout(cfg)
+    local colors = cfg.colors
 
     -- background panel
     newQuad(glasses,
@@ -121,7 +158,7 @@ local function setupGlass(glasses)
         { pos.barLeftX + pos.l + pos.b2 + 1, pos.panelTopY },
         { pos.topRightX + 1, pos.panelBottomY },
         { 0, pos.panelBottomY },
-        borderColor)
+        colors.border)
 
     -- bottom bar
     newQuad(glasses,
@@ -129,7 +166,7 @@ local function setupGlass(glasses)
         { pos.barLeftX + pos.l + pos.b2 + 1, pos.y },
         { pos.barLeftX + pos.l + pos.b2 + 1, pos.y - pos.b1 },
         { 0, pos.y - pos.b1 },
-        borderColor)
+        colors.border)
 
     local ui = {}
 
@@ -139,7 +176,7 @@ local function setupGlass(glasses)
         { pos.barRightX, pos.panelTopY },
         { pos.topRightX, pos.panelTopY - pos.h },
         { pos.topLeftX, pos.panelTopY - pos.h },
-        emptyColor)
+        colors.empty)
 
     -- cyan fill, updated each tick
     ui.energyBar = newQuad(glasses,
@@ -147,20 +184,20 @@ local function setupGlass(glasses)
         { pos.barRightX, pos.panelTopY },
         { pos.topRightX, pos.panelTopY - pos.h },
         { pos.topLeftX, pos.panelTopY - pos.h },
-        fillColor)
+        colors.fill)
 
-    ui.textPercent = newText(glasses, "0.0%", pos.percentX, pos.percentY, config.fontSize, fillColor)
-    ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, config.fontSize / 1.3, textColor)
-    ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, config.fontSize / 1.3, textColor)
-    ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, config.fontSize, warningColor)
+    ui.textPercent = newText(glasses, "0.0%", pos.percentX, pos.percentY, cfg.fontSize, colors.fill)
+    ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
+    ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
+    ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, cfg.fontSize, colors.warning)
     return ui
 end
 
-local function updateBar(quad, yBase, height, percent)
-    local leftBottomX = 3.5 * config.height
-    local leftTopX = 2.5 * config.height
-    local rightBottomX = leftBottomX + config.length * percent
-    local rightTopX = leftTopX + config.length * percent
+local function updateBar(quad, yBase, height, percent, cfg)
+    local leftBottomX = 3.5 * cfg.height
+    local leftTopX = 2.5 * cfg.height
+    local rightBottomX = leftBottomX + cfg.length * percent
+    local rightTopX = leftTopX + cfg.length * percent
 
     quad.setVertex(1, leftBottomX, yBase)
     quad.setVertex(2, rightBottomX, yBase)
@@ -170,14 +207,22 @@ end
 
 local function main()
     local glassesList = {}
-    for address in component.list("glasses") do
+    for address in pairs(component.list("glasses")) do
         local glasses = component.proxy(address)
         if glasses then
-            table.insert(glassesList, {
-                address = address,
-                device = glasses,
-                ui = setupGlass(glasses),
-            })
+            local players = { glasses.getBindPlayers() }
+            local playerName = players[1]
+
+            if playerName then
+                local cfg = mergeConfig(playerName)
+                table.insert(glassesList, {
+                    address = address,
+                    player = playerName,
+                    cfg = cfg,
+                    device = glasses,
+                    ui = setupGlass(glasses, cfg),
+                })
+            end
         end
     end
 
@@ -192,13 +237,14 @@ local function main()
 
             for _, entry in ipairs(glassesList) do
                 local ui = entry.ui
-                local pos = layout()
-                local currTextScale = config.fontSize / 1.3
+                local cfg = entry.cfg
+                local pos = layout(cfg)
+                local currTextScale = cfg.fontSize / 1.3
 
-                updateBar(ui.energyBar, pos.y - config.borderBottom, config.height, percentage)
+                updateBar(ui.energyBar, pos.y - cfg.borderBottom, cfg.height, percentage, cfg)
 
                 updateTextLabel(ui.textPercent, string.format("%.1f%%", percentage * 100),
-                    pos.percentX, pos.percentY, config.fontSize, false)
+                    pos.percentX, pos.percentY, cfg.fontSize, false)
 
                 updateTextLabel(ui.textCurr, formatNumber(currentEnergy) .. " EU",
                     pos.currTextX, pos.textY, currTextScale, false)
