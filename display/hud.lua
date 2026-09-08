@@ -52,13 +52,11 @@ local function newText(glasses, text, x, y, scale, color)
 end
 
 local function formatNumber(value)
-    value = math.floor(value)
-    if value >= 1000000 then
-        return string.format("%.1fM", value / 1000000)
-    elseif value >= 1000 then
-        return string.format("%.1fK", value / 1000)
+    value = tonumber(value) or 0
+    if value == 0 then
+        return "0"
     end
-    return tostring(value)
+    return (string.format("%.2e", value):gsub("%+", ""))
 end
 
 local function updateTextLabel(label, text, baseX, baseY, scale, alignRight)
@@ -98,7 +96,8 @@ local function layout()
         panelTopY = panelTopY,
         panelBottomY = panelBottomY,
         textY = textY,
-        percentRightX = barLeftX - 2,
+        percentX = 5,
+        percentY = textY - 2,
         currTextX = barLeftX + 2,
         maxTextX = barRightX - 2,
         statusY = panelBottomY - 3 * config.fontSize,
@@ -150,7 +149,7 @@ local function setupGlass(glasses)
         { pos.topLeftX, pos.panelTopY - pos.h },
         fillColor)
 
-    ui.textPercent = newText(glasses, "0.0%", pos.percentRightX, pos.textY, config.fontSize, fillColor)
+    ui.textPercent = newText(glasses, "0.0%", pos.percentX, pos.percentY, config.fontSize, fillColor)
     ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, config.fontSize / 1.3, textColor)
     ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, config.fontSize / 1.3, textColor)
     ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, config.fontSize, warningColor)
@@ -198,9 +197,8 @@ local function main()
 
                 updateBar(ui.energyBar, pos.y - config.borderBottom, config.height, percentage)
 
-                -- Percentage sits in the left panel, flush against the bar
                 updateTextLabel(ui.textPercent, string.format("%.1f%%", percentage * 100),
-                    pos.percentRightX, pos.textY, config.fontSize, true)
+                    pos.percentX, pos.percentY, config.fontSize, false)
 
                 updateTextLabel(ui.textCurr, formatNumber(currentEnergy) .. " EU",
                     pos.currTextX, pos.textY, currTextScale, false)
