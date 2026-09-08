@@ -133,18 +133,6 @@ local function shortNumber(value)
   return string.format("%.0f", value)
 end
 
-local function formatEU(value)
-  local abs = math.abs(value)
-  if abs >= 1000000000 then
-    return string.format("%.2fG EU", value / 1000000000)
-  elseif abs >= 1000000 then
-    return string.format("%.2fM EU", value / 1000000)
-  elseif abs >= 1000 then
-    return string.format("%.2fK EU", value / 1000)
-  end
-  return string.format("%.0f EU", value)
-end
-
 local function getColorForRatio(config, ratio)
   if ratio <= config.thresholds.low then
     return config.colors.low
@@ -168,30 +156,53 @@ local function drawCenteredText(x, y, text, color, fillWidth)
   gpu.set(x, y, text)
 end
 
-local function listComponents(name)
-  local items = {}
-  local direct = component[name]
+local function addMachineCandidate(candidates, device)
+  if device == nil then
+    return
+  end
 
+  local address = device.address or tostring(device)
+  if candidates[address] then
+    return
+  end
+
+  candidates[address] = device
+end
+
+local function getGTMachineCandidates()
+  local candidates = {}
+
+  local direct = component.gt_machine
   if type(direct) == "table" then
     if direct.address ~= nil then
-      table.insert(items, direct)
+      addMachineCandidate(candidates, direct)
     else
       for _, value in pairs(direct) do
         if type(value) == "table" and value.address ~= nil then
-          table.insert(items, value)
+          addMachineCandidate(candidates, value)
         end
       end
     end
   end
 
-  for address in component.list(name) do
-    local proxy = component.proxy(address)
-    if proxy ~= nil then
-      table.insert(items, proxy)
+  local ok, listResult = pcall(function()
+    for address in component.list("gt_machine") do
+      local proxy = component.proxy(address)
+      if proxy ~= nil then
+        addMachineCandidate(candidates, proxy)
+      end
     end
+  end)
+
+  if not ok then
+    return {}
   end
 
-  return items
+  local result = {}
+  for _, device in pairs(candidates) do
+    table.insert(result, device)
+  end
+  return result
 end
 
 local function readValueFromDevice(device, names)
@@ -207,53 +218,21 @@ local function readValueFromDevice(device, names)
 end
 
 local function collectLSCs()
-  local results = {}
+  local final = {}
   local seen = {}
 
   local function addDevice(device)
-    if device == nil then return end
-    local address = device.address or tostring(device)
-    if seen[address] then return end
-    seen[address] = true
-    table.insert(results, device)
-  end
-
-  -- GTNH LSCs are exposed directly as gt_machine components, so prefer that first.
-  for _, device in ipairs(listComponents("gt_machine")) do
-    addDevice(device)
-  end
-  for _, device in ipairs(listComponents("lsc")) do
-    addDevice(device)
-  end
-  for _, device in ipairs(listComponents("large_storage_capacitor")) do
-    addDevice(device)
-  end
-  for _, device in ipairs(listComponents("energy_storage")) do
-    addDevice(device)
-  end
-  for _, device in ipairs(listComponents("capacitor")) do
-    addDevice(device)
-  end
-
-  for _, adapter in ipairs(listComponents("adapter")) do
-    local getDevices = adapter.getDevices or adapter.getConnectedDevices or adapter.getEnergyStorages
-    if type(getDevices) == "function" then
-      local ok, devices = pcall(getDevices)
-      if ok and type(devices) == "table" then
-        for _, device in ipairs(devices) do
-          if type(device) == "table" then
-            addDevice(device)
-          elseif type(device) == "string" then
-            local proxy = component.proxy(device)
-            if proxy then addDevice(proxy) end
-          end
-        end
-      end
+    if device == nil then
+      return
     end
-  end
 
-  local final = {}
-  for _, device in ipairs(results) do
+    local address = device.address or tostring(device)
+    if seen[address] then
+      return
+    end
+
+    seen[address] = true
+
     local stored = readValueFromDevice(device, {
       "getEUStored",
       "getStoredEU",
@@ -274,12 +253,16 @@ local function collectLSCs()
 
     if stored ~= nil and max ~= nil then
       table.insert(final, {
-        address = device.address,
+        address = address,
         label = device.label or device.name or "LSC",
         stored = asNumber(stored, 0),
         max = math.max(asNumber(max, 1), 1),
       })
     end
+  end
+
+  for _, device in ipairs(getGTMachineCandidates()) do
+    addDevice(device)
   end
 
   table.sort(final, function(a, b)
@@ -323,12 +306,23 @@ end
 
 local function listGlassesTerminals()
   local terminals = {}
-  for address in component.list("glasses") do
-    local proxy = component.proxy(address)
-    if proxy then
+  local ok, listResult = pcall(function()
+    local result = {}
+    for address in component.list("glasses") do
+      local proxy = component.proxy(address)
+      if proxy then
+        table.insert(result, proxy)
+      end
+    end
+    return result
+  end)
+
+  if ok and type(listResult) == "table" then
+    for _, proxy in ipairs(listResult) do
       table.insert(terminals, proxy)
     end
   end
+
   return terminals
 end
 
@@ -421,8 +415,6 @@ local function getPrimaryLSC()
 end
 
 local function main()
-  local lastTick = 0
-
   while true do
     local terminals = listGlassesTerminals()
 
