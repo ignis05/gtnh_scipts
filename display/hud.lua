@@ -2,7 +2,7 @@ local component = require("component")
 local os = require("os")
 
 local config = {
-    resolution = {2560, 1440},
+    resolution = { 2560, 1440 },
     GUIscale = 3,
     height = 12,
     length = 168,
@@ -12,10 +12,10 @@ local config = {
 }
 
 local function RGB(hex)
-  local r = ((hex >> 16) & 0xFF) / 255.0
-  local g = ((hex >> 8) & 0xFF) / 255.0
-  local b = ((hex) & 0xFF) / 255.0
-  return r, g, b
+    local r = ((hex >> 16) & 0xFF) / 255.0
+    local g = ((hex >> 8) & 0xFF) / 255.0
+    local b = ((hex) & 0xFF) / 255.0
+    return r, g, b
 end
 
 local function newQuad(glasses, p1, p2, p3, p4, color)
@@ -30,11 +30,18 @@ local function newQuad(glasses, p1, p2, p3, p4, color)
     return quad
 end
 
+local function textOffset(text, scale)
+    local chars = string.len(text or "")
+    return (chars * 5.5) * (scale or 1)
+end
+
 local function newText(glasses, text, x, y, scale, color)
     local label = glasses.addTextLabel()
+    local fontScale = scale or 1
+
     label.setText(text)
     label.setPosition(x, y)
-    label.setScale(scale or 1)
+    label.setScale(fontScale)
 
     if label.setColor then
         local r, g, b = RGB(color)
@@ -54,37 +61,99 @@ local function formatNumber(value)
     return tostring(value)
 end
 
-local function setupGlass(glasses)
-    glasses.removeAll()
+local function updateTextLabel(label, text, baseX, baseY, scale, alignRight)
+    label.setText(text)
+    if alignRight then
+        label.setPosition(baseX - textOffset(text, scale), baseY)
+    else
+        label.setPosition(baseX, baseY)
+    end
+end
 
+local function layout()
     local l = config.length
     local h = config.height
     local b1 = config.borderBottom
     local b2 = config.borderTop
     local y = config.resolution[2] / config.GUIscale
 
-    local borderColor = 0x181828 -- dark gray
-    local panelColor = 0x00A6FF -- light blue
-    local accentColor = 0x303850 -- dark blue
-    local textColor = 0x000000 -- black
+    local barLeftX = 3.5 * h
+    local barRightX = barLeftX + l
+    local topLeftX = 2.5 * h
+    local topRightX = topLeftX + l
+    local panelTopY = y - b1
+    local panelBottomY = panelTopY - h - b2
+    local textY = panelTopY - h * 0.5
+
+    return {
+        l = l,
+        h = h,
+        b1 = b1,
+        b2 = b2,
+        y = y,
+        barLeftX = barLeftX,
+        barRightX = barRightX,
+        topLeftX = topLeftX,
+        topRightX = topRightX,
+        panelTopY = panelTopY,
+        panelBottomY = panelBottomY,
+        textY = textY,
+        percentRightX = barLeftX - 2,
+        currTextX = barLeftX + 2,
+        maxTextX = barRightX - 2,
+        statusY = panelBottomY - 3 * config.fontSize,
+    }
+end
+
+local function setupGlass(glasses)
+    glasses.removeAll()
+
+    local pos = layout()
+
+    local borderColor = 0x181828  -- dark panel
+    local emptyColor = 0x5A5A68   -- gray unfilled capacity
+    local fillColor = 0x00A6FF    -- cyan fill / percent
+    local textColor = 0x000000    -- black
     local warningColor = 0xFF0000 -- red
 
-
     -- background panel
-    newQuad(glasses, {0, y - b1}, {3.5 * h + l + b2 + 1, y - b1}, {2.5 * h + l + 1, y - b1 - h - b2}, {0, y - b1 - h - b2}, borderColor)
+    newQuad(glasses,
+        { 0, pos.panelTopY },
+        { pos.barLeftX + pos.l + pos.b2 + 1, pos.panelTopY },
+        { pos.topRightX + 1, pos.panelBottomY },
+        { 0, pos.panelBottomY },
+        borderColor)
+
     -- bottom bar
-    newQuad(glasses, {0, y}, {3.5 * h + l + b2 + 1, y}, {3.5 * h + l + b2 + 1, y - b1}, {0, y - b1}, borderColor)
+    newQuad(glasses,
+        { 0, pos.y },
+        { pos.barLeftX + pos.l + pos.b2 + 1, pos.y },
+        { pos.barLeftX + pos.l + pos.b2 + 1, pos.y - pos.b1 },
+        { 0, pos.y - pos.b1 },
+        borderColor)
+
     local ui = {}
+
+    -- gray empty capacity track (full width)
+    ui.emptyBar = newQuad(glasses,
+        { pos.barLeftX, pos.panelTopY },
+        { pos.barRightX, pos.panelTopY },
+        { pos.topRightX, pos.panelTopY - pos.h },
+        { pos.topLeftX, pos.panelTopY - pos.h },
+        emptyColor)
+
+    -- cyan fill, updated each tick
     ui.energyBar = newQuad(glasses,
-        {3.5 * h, y - b1},
-        {3.5 * h + l, y - b1},
-        {2.5 * h + l, y - b1 - h},
-        {2.5 * h, y - b1 - h},
-        panelColor)
-    ui.textPercent = newText(glasses, "0.0%", b2 + 2.1 * h, y - b1 - h / 1.8 - config.fontSize, config.fontSize, accentColor)
-    ui.textCurr = newText(glasses, "", b2 + 3.25 * h + 1, y - b1 - h / 2 - config.fontSize, config.fontSize / 1.3, textColor)
-    ui.textMax = newText(glasses, "", 2.25 * h + l - 1.5 * config.fontSize, y - b1 - h / 2 - config.fontSize, config.fontSize / 1.3, textColor)
-    ui.textStatus = newText(glasses, "", b2, y - b1 - b2 - h - 3 * config.fontSize, config.fontSize, warningColor)
+        { pos.barLeftX, pos.panelTopY },
+        { pos.barRightX, pos.panelTopY },
+        { pos.topRightX, pos.panelTopY - pos.h },
+        { pos.topLeftX, pos.panelTopY - pos.h },
+        fillColor)
+
+    ui.textPercent = newText(glasses, "0.0%", pos.percentRightX, pos.textY, config.fontSize, fillColor)
+    ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, config.fontSize / 1.3, textColor)
+    ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, config.fontSize / 1.3, textColor)
+    ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, config.fontSize, warningColor)
     return ui
 end
 
@@ -124,13 +193,20 @@ local function main()
 
             for _, entry in ipairs(glassesList) do
                 local ui = entry.ui
-                local y = config.resolution[2] / config.GUIscale
+                local pos = layout()
+                local currTextScale = config.fontSize / 1.3
 
-                updateBar(ui.energyBar, y - config.borderBottom, config.height, percentage)
+                updateBar(ui.energyBar, pos.y - config.borderBottom, config.height, percentage)
 
-                ui.textPercent.setText(string.format("%.1f%%", percentage * 100))
-                ui.textCurr.setText(formatNumber(currentEnergy) .. " EU")
-                ui.textMax.setText(formatNumber(maxCapacity) .. " EU")
+                -- Percentage sits in the left panel, flush against the bar
+                updateTextLabel(ui.textPercent, string.format("%.1f%%", percentage * 100),
+                    pos.percentRightX, pos.textY, config.fontSize, true)
+
+                updateTextLabel(ui.textCurr, formatNumber(currentEnergy) .. " EU",
+                    pos.currTextX, pos.textY, currTextScale, false)
+
+                updateTextLabel(ui.textMax, formatNumber(maxCapacity) .. " EU",
+                    pos.maxTextX, pos.textY, currTextScale, true)
                 -- ui.textStatus.setText(string.format("IN %s EU/t  OUT %s EU/t", formatNumber(avgEnergyInput), formatNumber(avgEnergyOutput)))
             end
         end
