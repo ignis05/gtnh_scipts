@@ -10,8 +10,7 @@ local config = {
     expectedMaxChargeRate = 128000, -- should match expected charge rate when all power sources are running at full efficientcy
     fashChargeThreshold = 0.8, -- will show second chevron when charge speed exteeds this fraction
     fashDischargeThreshold = 0.5, -- will show second chevron when discharge speed exteeds this fraction
-    showEmptyIn = "warning", -- available settings: "always", "warning", and "never". "warning" matches the current behavior.
-    -- third discharge chevron will show when discharge speed exteeds the expectedMaxChargeRate along with "Empty In" warning text
+    showEmptyIn = "warning", -- | "always" | "warning" | "never". Warning shows it only if discharge speed is faster than configured expectedMaxChargeRate.
 
     -- display customization
     height = 12, -- height of the energy bar in pixels
@@ -335,7 +334,7 @@ local function layout(cfg)
         percentY = textY - 2,
         currTextX = barLeftX + 2,
         maxTextX = barRightX - 2,
-        warningX = (cfg.borderTop or 2) + 18,
+        warningX = cfg.borderTop + 70,
         statusY = panelBottomY - 8 * cfg.fontSize - 2,
     }
 end
