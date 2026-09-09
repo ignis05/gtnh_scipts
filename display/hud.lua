@@ -2,14 +2,23 @@ local component = require("component")
 local os = require("os")
 
 local config = {
-    resolution = { 2560, 1440 },
-    GUIscale = 3,
-    height = 12,
-    length = 168,
-    borderBottom = 2,
-    borderTop = 2,
-    fontSize = 1,
-    expectedMaxChargeRate = 128000,
+    -- scale / resolution settings
+    resolution = { 2560, 1440 }, -- screen resolution
+    GUIscale = 3, -- match the one from minecraft settings
+
+    -- energy flow settings
+    expectedMaxChargeRate = 128000, -- should match expected charge rate when all power sources are running at full efficientcy
+    fashChargeThreshold = 0.8, -- will show second chevron when charge speed exteeds this fraction
+    fashDischargeThreshold = 0.5, -- will show second chevron when discharge speed exteeds this fraction
+    showEmptyIn = "warning", -- available settings: "always", "warning", and "never". "warning" matches the current behavior.
+    -- third discharge chevron will show when discharge speed exteeds the expectedMaxChargeRate along with "Empty In" warning text
+
+    -- display customization
+    height = 12, -- height of the energy bar in pixels
+    length = 168, -- length of the energy bar in pixels
+    borderBottom = 2, -- bottom border of the panel in pixels
+    borderTop = 2, -- top border of the panel in pixels
+    fontSize = 1, --font size
     colors = {
         border = 0x181828,  -- dark panel
         empty = 0x5A5A68,   -- gray unfilled capacity
@@ -261,18 +270,21 @@ local function parseSensorInfo(info)
     return avgIn, avgOut, timeToEmpty
 end
 
-local function flowArrows(avgIn, avgOut, maxRate)
+local function flowArrows(avgIn, avgOut, maxRate, cfg)
+    local chargeThreshold = (cfg and cfg.fashChargeThreshold) or 0.8
+    local dischargeThreshold = (cfg and cfg.fashDischargeThreshold) or 0.5
+
     local chargeSuffix = ""
     if avgIn > 0 then
         chargeSuffix = ">"
-        if avgIn > maxRate * 0.8 then
+        if avgIn > maxRate * chargeThreshold then
             chargeSuffix = ">>"
         end
     end
     local dischargePrefix = ""
     if avgOut > 0 then
         dischargePrefix = "<"
-        if avgOut > maxRate * 0.8 then
+        if avgOut > maxRate * dischargeThreshold then
             dischargePrefix = "<<"
         end
         if avgOut > maxRate then
@@ -323,6 +335,7 @@ local function layout(cfg)
         percentY = textY - 2,
         currTextX = barLeftX + 2,
         maxTextX = barRightX - 2,
+        warningX = (cfg.borderTop or 2) + 18,
         statusY = panelBottomY - 8 * cfg.fontSize - 2,
     }
 end
@@ -370,7 +383,7 @@ local function setupGlass(glasses, cfg, databaseItems)
     ui.textPercent = newText(glasses, "0.0%", pos.percentX, pos.percentY, cfg.fontSize, colors.fill)
     ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
     ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
-    ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, cfg.fontSize, colors.warning)
+    ui.textStatus = newText(glasses, "", pos.warningX, pos.statusY, cfg.fontSize, colors.warning)
 
     local itemX = 4
     local itemY = pos.panelTopY - 26
@@ -383,7 +396,7 @@ local function setupGlass(glasses, cfg, databaseItems)
         iconWidget.setItem(component.database.address, itemEntry.slot)
         iconWidget.setPosition(itemX, y)
 
-        local label = newText(glasses, "0", itemX + 18, y,
+        local label = newText(glasses, "0", itemX + 18, y+5,
             cfg.fontSize / 1.2, colors.text)
 
         table.insert(ui.inventory, {
@@ -448,7 +461,7 @@ local function main()
 
                 local currTextScale = cfg.fontSize / 1.3
                 local maxRate = cfg.expectedMaxChargeRate or 0
-                local chargeSuffix, dischargePrefix = flowArrows(avgEnergyInput, avgEnergyOutput, maxRate)
+                local chargeSuffix, dischargePrefix = flowArrows(avgEnergyInput, avgEnergyOutput, maxRate, cfg)
 
                 local currText = formatNumber(currentEnergy) .. " EU"
                 if dischargePrefix ~= "" then
@@ -470,10 +483,26 @@ local function main()
                     pos.maxTextX, pos.textY, currTextScale, true)
 
                 local emptyText = ""
-                if dischargePrefix == "<<<" then
+                local emptyTextColor = cfg.colors.text
+                local showEmptyInMode = tostring(cfg.showEmptyIn or "warning"):lower()
+
+                if showEmptyInMode == "always" then
                     emptyText = "Empty in: " .. timeToEmpty
+                    if dischargePrefix == "<<<" then
+                        emptyTextColor = cfg.colors.warning
+                    end
+                elseif showEmptyInMode == "warning" then
+                    if dischargePrefix == "<<<" then
+                        emptyText = "Empty in: " .. timeToEmpty
+                        emptyTextColor = cfg.colors.warning
+                    end
                 end
-                updateTextLabel(ui.textStatus, emptyText, pos.b2, pos.statusY, cfg.fontSize, false)
+
+                updateTextLabel(ui.textStatus, emptyText, pos.warningX, pos.statusY, cfg.fontSize, false)
+                if ui.textStatus.setColor then
+                    local r, g, b = RGB(emptyTextColor)
+                    ui.textStatus.setColor(r, g, b)
+                end
 
                 for _, item in ipairs(ui.inventory or {}) do
                     local count = readStackCount(item.entry)
