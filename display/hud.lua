@@ -19,12 +19,15 @@ local config = {
     borderTop = 2,          -- top border of the panel in pixels
     fontSize = 1,           --font size
     colors = {
-        border = 0x181828,  -- dark panel
-        empty = 0x5A5A68,   -- gray unfilled capacity
-        fill = 0x00A6FF,    -- cyan fill / percent
-        text = 0x000000,    -- black
-        warning = 0xFF0000, -- red
+        border = 0x181828,        -- dark panel
+        empty = 0x5A5A68,         -- gray unfilled capacity
+        fill = 0x00A6FF,          -- cyan fill / percent
+        text = 0x000000,          -- black
+        warning = 0xFF0000,       -- red
+        itemCountText = 0xFFFFFF, -- white text for item counts
+        itemCountBackground = 0x000000, -- white background for item counts
     },
+    itemCountBackgroundAlpha = 0.42,
 }
 
 -- Keys are Minecraft usernames bound to terminal glasses.
@@ -404,10 +407,10 @@ local function setupGlass(glasses, cfg, databaseItems)
         local background = glasses.addRect()
         background.setPosition(labelX - 2, labelY - 2)
         background.setSize(10, 18)
-        background.setColor(RGB(0x000000))
-        background.setAlpha(0.42)
+        background.setColor(RGB(cfg.colors.itemCountBackground))
+        background.setAlpha(cfg.itemCountBackgroundAlpha)
 
-        local label = newText(glasses, "0", labelX, labelY, labelScale, colors.text)
+        local label = newText(glasses, "0", labelX, labelY, labelScale, cfg.colors.itemCountText)
 
         table.insert(ui.inventory, {
             icon = iconWidget,
@@ -525,11 +528,15 @@ local function main()
                     if item.background then
                         item.background.setPosition(textX - 2, textY - 2)
                         item.background.setSize(math.max(10, textScale * 8), boxWidth)
-                        item.background.setColor(RGB(0x000000))
-                        item.background.setAlpha(0.42)
+                        item.background.setColor(RGB(cfg.colors.itemCountBackground))
+                        item.background.setAlpha(cfg.itemCountBackgroundAlpha)
                     end
 
                     updateTextLabel(item.text, countText, textX, textY, textScale, false)
+                    if item.text.setColor then
+                        local r, g, b = RGB(cfg.colors.itemCountText)
+                        item.text.setColor(r, g, b)
+                    end
                 end
             end
         end
