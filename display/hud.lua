@@ -199,7 +199,14 @@ local function scanDatabaseEntries()
         if not stack then
             break
         end
-        table.insert(items, { slot = index, stack = stack })
+
+        table.insert(items, {
+            slot = index,
+            name = stack.name or stack.id or stack.unlocalizedName or stack.displayName,
+            damage = tonumber(stack.damage) or tonumber(stack.meta) or 0,
+            nbt = stack.nbt,
+            stack = stack,
+        })
         index = index + 1
     end
     return items
@@ -376,14 +383,14 @@ local function setupGlass(glasses, cfg, databaseItems)
         iconWidget.setItem(component.database.address, itemEntry.slot)
         iconWidget.setPosition(itemX, y)
 
-        local countText = formatCompactNumber(readStackCount(itemEntry.stack))
-        local label = newText(glasses, countText, itemX + 18, y + 1,
+        local label = newText(glasses, "0", itemX + 18, y + 1,
             cfg.fontSize / 1.2, colors.text)
 
         table.insert(ui.inventory, {
             icon = iconWidget,
             text = label,
             slot = itemEntry.slot,
+            entry = itemEntry,
         })
     end
 
@@ -403,6 +410,7 @@ local function updateBar(quad, yBase, height, percent, cfg)
 end
 
 local function main()
+    local databaseItems = scanDatabaseEntries()
     local glassesList = {}
     for address in pairs(component.list("glasses")) do
         local glasses = component.proxy(address)
@@ -412,18 +420,19 @@ local function main()
 
             if playerName then
                 local cfg = mergeConfig(playerName)
-                table.insert(glassesList, {
+                local entry = {
                     address = address,
                     player = playerName,
                     cfg = cfg,
                     device = glasses,
-                })
+                }
+                entry.ui = setupGlass(glasses, cfg, databaseItems)
+                table.insert(glassesList, entry)
             end
         end
     end
 
     while true do
-        local databaseItems = scanDatabaseEntries()
         local machine = component.gt_machine
         if machine then
             local maxCapacity = tonumber(machine.getEUCapacity()) or 0
@@ -435,8 +444,7 @@ local function main()
             for _, entry in ipairs(glassesList) do
                 local cfg = entry.cfg
                 local pos = layout(cfg)
-                local ui = setupGlass(entry.device, cfg, databaseItems)
-                entry.ui = ui
+                local ui = entry.ui
 
                 local currTextScale = cfg.fontSize / 1.3
                 local maxRate = cfg.expectedMaxChargeRate or 0
@@ -468,7 +476,7 @@ local function main()
                 updateTextLabel(ui.textStatus, emptyText, pos.b2, pos.statusY, cfg.fontSize, false)
 
                 for _, item in ipairs(ui.inventory or {}) do
-                    local count = readStackCount(component.database.get(item.slot))
+                    local count = readStackCount(item.entry)
                     updateTextLabel(item.text, formatCompactNumber(count),
                         item.text.getPosition() and (item.text.getPosition()) or 0,
                         item.text.getPosition() and (select(2, item.text.getPosition())) or 0,
