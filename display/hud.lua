@@ -366,16 +366,18 @@ local function setupGlass(glasses, cfg, databaseItems)
     ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, cfg.fontSize, colors.warning)
 
     local itemX = 4
-    local itemY = pos.panelTopY - 22
+    local itemY = pos.panelTopY - 26
     local itemStep = 18
+    local itemTopPadding = 18
     ui.inventory = {}
     for i, itemEntry in ipairs(databaseItems or {}) do
+        local y = itemY - (i - 1) * itemStep - itemTopPadding
         local iconWidget = glasses.addItem()
         iconWidget.setItem(component.database.address, itemEntry.slot)
-        iconWidget.setPosition(itemX, itemY - (i - 1) * itemStep)
+        iconWidget.setPosition(itemX, y)
 
         local countText = formatCompactNumber(readStackCount(itemEntry.stack))
-        local label = newText(glasses, countText, itemX + 18, itemY - (i - 1) * itemStep + 1,
+        local label = newText(glasses, countText, itemX + 18, y + 1,
             cfg.fontSize / 1.2, colors.text)
 
         table.insert(ui.inventory, {
