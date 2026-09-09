@@ -4,20 +4,20 @@ local os = require("os")
 local config = {
     -- scale / resolution settings
     resolution = { 2560, 1440 }, -- screen resolution
-    GUIscale = 3, -- match the one from minecraft settings
+    GUIscale = 3,                -- match the one from minecraft settings
 
     -- energy flow settings
     expectedMaxChargeRate = 128000, -- should match expected charge rate when all power sources are running at full efficientcy
-    fashChargeThreshold = 0.8, -- will show second chevron when charge speed exteeds this fraction
-    fashDischargeThreshold = 0.5, -- will show second chevron when discharge speed exteeds this fraction
-    showEmptyIn = "warning", -- | "always" | "warning" | "never". Warning shows it only if discharge speed is faster than configured expectedMaxChargeRate.
+    fashChargeThreshold = 0.8,      -- will show second chevron when charge speed exteeds this fraction
+    fashDischargeThreshold = 0.5,   -- will show second chevron when discharge speed exteeds this fraction
+    showEmptyIn = "warning",        -- | "always" | "warning" | "never". Warning shows it only if discharge speed is faster than configured expectedMaxChargeRate.
 
     -- display customization
-    height = 12, -- height of the energy bar in pixels
-    length = 168, -- length of the energy bar in pixels
-    borderBottom = 2, -- bottom border of the panel in pixels
-    borderTop = 2, -- top border of the panel in pixels
-    fontSize = 1, --font size
+    height = 12,            -- height of the energy bar in pixels
+    length = 168,           -- length of the energy bar in pixels
+    borderBottom = 2,       -- bottom border of the panel in pixels
+    borderTop = 2,          -- top border of the panel in pixels
+    fontSize = 1,           --font size
     colors = {
         border = 0x181828,  -- dark panel
         empty = 0x5A5A68,   -- gray unfilled capacity
@@ -30,7 +30,10 @@ local config = {
 -- Keys are Minecraft usernames bound to terminal glasses.
 -- Only list fields that differ from `config`.
 local playerConfig = {
-    ["monolither"] = { GUIscale = 4 },
+    ["monolither"] = {
+        GUIscale = 4,
+        length = 150
+    },
 }
 
 local function copyTable(src)
@@ -333,7 +336,7 @@ local function layout(cfg)
         percentX = 5,
         percentY = textY - 2,
         currTextX = barLeftX + 2,
-        maxTextX = barRightX - 2,
+        maxTextX = barRightX - 6,
         warningX = cfg.borderTop + 70,
         statusY = panelBottomY - 8 * cfg.fontSize - 2,
     }
@@ -395,7 +398,7 @@ local function setupGlass(glasses, cfg, databaseItems)
         iconWidget.setItem(component.database.address, itemEntry.slot)
         iconWidget.setPosition(itemX, y)
 
-        local label = newText(glasses, "0", itemX + 18, y+5,
+        local label = newText(glasses, "0", itemX + 18, y + 5,
             cfg.fontSize / 1.2, colors.text)
 
         table.insert(ui.inventory, {
