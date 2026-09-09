@@ -519,7 +519,7 @@ local function main()
                     local count = readStackCount(item.entry)
                     local countText = formatCompactNumber(count)
                     local textScale = cfg.fontSize / 1.2
-                    local textX, textY = item.text.getPosition() or (0, 0)
+                    local textX, textY = item.text.getPosition()
                     local boxWidth = math.max(18, textOffset(countText, textScale) + 8)
 
                     if item.background then
