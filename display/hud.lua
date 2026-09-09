@@ -375,7 +375,7 @@ local function setupGlass(glasses, cfg, databaseItems)
     local itemX = 4
     local itemY = pos.panelTopY - 26
     local itemStep = 18
-    local itemTopPadding = 18
+    local itemTopPadding = 9
     ui.inventory = {}
     for i, itemEntry in ipairs(databaseItems or {}) do
         local y = itemY - (i - 1) * itemStep - itemTopPadding
@@ -383,7 +383,7 @@ local function setupGlass(glasses, cfg, databaseItems)
         iconWidget.setItem(component.database.address, itemEntry.slot)
         iconWidget.setPosition(itemX, y)
 
-        local label = newText(glasses, "0", itemX + 18, y + 1,
+        local label = newText(glasses, "0", itemX + 18, y,
             cfg.fontSize / 1.2, colors.text)
 
         table.insert(ui.inventory, {
