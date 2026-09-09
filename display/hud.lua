@@ -9,6 +9,7 @@ local config = {
     borderBottom = 2,
     borderTop = 2,
     fontSize = 1,
+    expectedMaxChargeRate = 128000,
     colors = {
         border = 0x181828,  -- dark panel
         empty = 0x5A5A68,   -- gray unfilled capacity
@@ -101,6 +102,76 @@ local function formatNumber(value)
     return (string.format("%.2e", value):gsub("%+", ""))
 end
 
+local SENSOR_AVG_IN = "lapotronic_super_capacitor.avg_eu_in.min5"
+local SENSOR_AVG_OUT = "lapotronic_super_capacitor.avg_eu_out.min5"
+local SENSOR_TIME_EMPTY = "lapotronic_super_capacitor.time_to.empty"
+
+local function sensorField(line, key)
+    local start = line:find(key, 1, true)
+    if not start then
+        return nil
+    end
+    local rest = line:sub(start + #key):gsub("^\\+", "")
+    local field = rest:match("^([^\\]*)") or rest
+    field = field:gsub("§.", ""):match("^%s*(.-)%s*$") or ""
+    if field == "" then
+        return nil
+    end
+    return field
+end
+
+local function parseCommaNumber(str)
+    if not str then
+        return 0
+    end
+    return tonumber((str:gsub(",", ""))) or 0
+end
+
+local function parseSensorInfo(info)
+    local avgIn, avgOut, timeToEmpty = 0, 0, "0"
+    if type(info) ~= "table" then
+        return avgIn, avgOut, timeToEmpty
+    end
+    for _, line in ipairs(info) do
+        if type(line) == "string" then
+            local inField = sensorField(line, SENSOR_AVG_IN)
+            if inField then
+                avgIn = parseCommaNumber(inField)
+            end
+            local outField = sensorField(line, SENSOR_AVG_OUT)
+            if outField then
+                avgOut = parseCommaNumber(outField)
+            end
+            local emptyField = sensorField(line, SENSOR_TIME_EMPTY)
+            if emptyField then
+                timeToEmpty = emptyField
+            end
+        end
+    end
+    return avgIn, avgOut, timeToEmpty
+end
+
+local function flowArrows(avgIn, avgOut, maxRate)
+    local chargeSuffix = ""
+    if avgIn > 0 then
+        chargeSuffix = ">"
+        if avgIn > maxRate * 0.8 then
+            chargeSuffix = ">>"
+        end
+    end
+    local dischargePrefix = ""
+    if avgOut > 0 then
+        dischargePrefix = "<"
+        if avgOut > maxRate * 0.8 then
+            dischargePrefix = "<<"
+        end
+        if avgOut > maxRate then
+            dischargePrefix = "<<<"
+        end
+    end
+    return chargeSuffix, dischargePrefix
+end
+
 local function updateTextLabel(label, text, baseX, baseY, scale, alignRight)
     label.setText(text)
     if alignRight then
@@ -142,7 +213,7 @@ local function layout(cfg)
         percentY = textY - 2,
         currTextX = barLeftX + 2,
         maxTextX = barRightX - 2,
-        statusY = panelBottomY - 3 * cfg.fontSize,
+        statusY = panelBottomY - 8 * cfg.fontSize - 2,
     }
 end
 
@@ -231,8 +302,8 @@ local function main()
         if machine then
             local maxCapacity = tonumber(machine.getEUCapacity()) or 0
             local currentEnergy = tonumber(machine.getEUStored()) or 0
-            local avgEnergyInput = tonumber(machine.getEUInputAverage()) or 0
-            local avgEnergyOutput = tonumber(machine.getEUOutputAverage()) or 0
+            local avgEnergyInput, avgEnergyOutput, timeToEmpty =
+                parseSensorInfo(machine.getSensorInformation())
             local percentage = math.min(currentEnergy / math.max(maxCapacity, 1), 1)
 
             for _, entry in ipairs(glassesList) do
@@ -240,18 +311,33 @@ local function main()
                 local cfg = entry.cfg
                 local pos = layout(cfg)
                 local currTextScale = cfg.fontSize / 1.3
+                local maxRate = cfg.expectedMaxChargeRate or 0
+                local chargeSuffix, dischargePrefix = flowArrows(avgEnergyInput, avgEnergyOutput, maxRate)
+
+                local currText = formatNumber(currentEnergy) .. " EU"
+                if dischargePrefix ~= "" then
+                    currText = dischargePrefix .. " " .. currText
+                end
+                if chargeSuffix ~= "" then
+                    currText = currText .. " " .. chargeSuffix
+                end
 
                 updateBar(ui.energyBar, pos.y - cfg.borderBottom, cfg.height, percentage, cfg)
 
                 updateTextLabel(ui.textPercent, string.format("%.1f%%", percentage * 100),
                     pos.percentX, pos.percentY, cfg.fontSize, false)
 
-                updateTextLabel(ui.textCurr, formatNumber(currentEnergy) .. " EU",
+                updateTextLabel(ui.textCurr, currText,
                     pos.currTextX, pos.textY, currTextScale, false)
 
                 updateTextLabel(ui.textMax, formatNumber(maxCapacity) .. " EU",
                     pos.maxTextX, pos.textY, currTextScale, true)
-                -- ui.textStatus.setText(string.format("IN %s EU/t  OUT %s EU/t", formatNumber(avgEnergyInput), formatNumber(avgEnergyOutput)))
+
+                local emptyText = ""
+                if dischargePrefix == "<<<" then
+                    emptyText = "Empty in: " .. timeToEmpty
+                end
+                updateTextLabel(ui.textStatus, emptyText, pos.b2, pos.statusY, cfg.fontSize, false)
             end
         end
 
