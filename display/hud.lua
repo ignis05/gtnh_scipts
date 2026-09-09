@@ -398,11 +398,20 @@ local function setupGlass(glasses, cfg, databaseItems)
         iconWidget.setItem(component.database.address, itemEntry.slot)
         iconWidget.setPosition(itemX, y)
 
-        local label = newText(glasses, "0", itemX + 18, y + 5,
-            cfg.fontSize / 1.2, colors.text)
+        local labelX = itemX + 18
+        local labelY = y + 5
+        local labelScale = cfg.fontSize / 1.2
+        local background = glasses.addRect()
+        background.setPosition(labelX - 2, labelY - 2)
+        background.setSize(10, 18)
+        background.setColor(RGB(0x000000))
+        background.setAlpha(0.42)
+
+        local label = newText(glasses, "0", labelX, labelY, labelScale, colors.text)
 
         table.insert(ui.inventory, {
             icon = iconWidget,
+            background = background,
             text = label,
             slot = itemEntry.slot,
             entry = itemEntry,
@@ -508,10 +517,19 @@ local function main()
 
                 for _, item in ipairs(ui.inventory or {}) do
                     local count = readStackCount(item.entry)
-                    updateTextLabel(item.text, formatCompactNumber(count),
-                        item.text.getPosition() and (item.text.getPosition()) or 0,
-                        item.text.getPosition() and (select(2, item.text.getPosition())) or 0,
-                        cfg.fontSize / 1.2, false)
+                    local countText = formatCompactNumber(count)
+                    local textScale = cfg.fontSize / 1.2
+                    local textX, textY = item.text.getPosition() or (0, 0)
+                    local boxWidth = math.max(18, textOffset(countText, textScale) + 8)
+
+                    if item.background then
+                        item.background.setPosition(textX - 2, textY - 2)
+                        item.background.setSize(math.max(10, textScale * 8), boxWidth)
+                        item.background.setColor(RGB(0x000000))
+                        item.background.setAlpha(0.42)
+                    end
+
+                    updateTextLabel(item.text, countText, textX, textY, textScale, false)
                 end
             end
         end
