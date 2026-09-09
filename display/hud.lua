@@ -22,7 +22,7 @@ local config = {
 -- Keys are Minecraft usernames bound to terminal glasses.
 -- Only list fields that differ from `config`.
 local playerConfig = {
-    ["monolither"] = { resolution = { 2560, 1440 }, GUIscale = 4 },
+    ["monolither"] = { GUIscale = 4 },
 }
 
 local function copyTable(src)
@@ -100,6 +100,109 @@ local function formatNumber(value)
         return "0"
     end
     return (string.format("%.2e", value):gsub("%+", ""))
+end
+
+local function formatCompactNumber(value)
+    local number = tonumber(value) or 0
+    if number < 1000 then
+        return tostring(math.floor(number))
+    elseif number < 1000000 then
+        return string.format("%.0fk", number / 1000)
+    elseif number < 1000000000 then
+        return string.format("%.0fM", number / 1000000)
+    end
+    return string.format("%.1fB", number / 1000000000)
+end
+
+local function normalizeNbt(nbt)
+    if nbt == nil or nbt == "" then
+        return "{}"
+    end
+    if type(nbt) == "string" then
+        return nbt
+    end
+    if type(nbt) == "table" then
+        local ok, serialization = pcall(require, "serialization")
+        if ok and serialization and type(serialization.serialize) == "function" then
+            return serialization.serialize(nbt)
+        end
+    end
+    return "{}"
+end
+
+local function readStackCount(stack)
+    if type(stack) ~= "table" then
+        return 0
+    end
+
+    local me = component.me_interface
+    if not me then
+        return 0
+    end
+
+    local name = stack.name or stack.id or stack.unlocalizedName or stack.displayName or ""
+    local damage = tonumber(stack.damage) or tonumber(stack.meta) or 0
+    local nbt = normalizeNbt(stack.nbt)
+
+    local queries = {}
+
+    if name ~= "" then
+        table.insert(queries, function()
+            return me.getItemInNetwork(name, damage, nbt)
+        end)
+    end
+
+    if damage ~= 0 or name:find("FluidDisplay", 1, true) or name:find("fluid", 1, true) then
+        table.insert(queries, function()
+            return me.getFluidInNetwork({ id = damage })
+        end)
+    end
+
+    for _, query in ipairs(queries) do
+        local ok, result = pcall(query)
+        if ok and result ~= nil then
+            if type(result) == "table" then
+                if result.amount ~= nil then
+                    return tonumber(result.amount) or 0
+                end
+                if result.size ~= nil then
+                    return tonumber(result.size) or 0
+                end
+                if result.count ~= nil then
+                    return tonumber(result.count) or 0
+                end
+                if result[1] and type(result[1]) == "table" then
+                    local amount = result[1].amount or result[1].size or result[1].count
+                    if amount ~= nil then
+                        return tonumber(amount) or 0
+                    end
+                end
+            elseif type(result) == "number" then
+                return result
+            end
+        end
+    end
+
+    return 0
+end
+
+local function scanDatabaseEntries()
+    local db = component.database
+    if not db then
+        return {}
+    end
+
+    local items = {}
+    local index = 1
+    while true do
+        local stack = db.get(index)
+        if not stack then
+            break
+        end
+        table.insert(items, { slot = index, stack = stack })
+        index = index + 1
+    end
+    return items
 end
 
 local SENSOR_AVG_IN = "lapotronic_super_capacitor.avg_eu_in.min5"
@@ -217,7 +320,7 @@ local function layout(cfg)
     }
 end
 
-local function setupGlass(glasses, cfg)
+local function setupGlass(glasses, cfg, databaseItems)
     glasses.removeAll()
 
     local pos = layout(cfg)
@@ -261,6 +364,27 @@ local function setupGlass(glasses, cfg)
     ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
     ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
     ui.textStatus = newText(glasses, "", pos.b2, pos.statusY, cfg.fontSize, colors.warning)
+
+    local itemX = 4
+    local itemY = pos.panelTopY - 22
+    local itemStep = 18
+    ui.inventory = {}
+    for i, itemEntry in ipairs(databaseItems or {}) do
+        local iconWidget = glasses.addItem()
+        iconWidget.setItem(component.database.address, itemEntry.slot)
+        iconWidget.setPosition(itemX, itemY - (i - 1) * itemStep)
+
+        local countText = formatCompactNumber(readStackCount(itemEntry.stack))
+        local label = newText(glasses, countText, itemX + 18, itemY - (i - 1) * itemStep + 1,
+            cfg.fontSize / 1.2, colors.text)
+
+        table.insert(ui.inventory, {
+            icon = iconWidget,
+            text = label,
+            slot = itemEntry.slot,
+        })
+    end
+
     return ui
 end
 
@@ -291,13 +415,13 @@ local function main()
                     player = playerName,
                     cfg = cfg,
                     device = glasses,
-                    ui = setupGlass(glasses, cfg),
                 })
             end
         end
     end
 
     while true do
+        local databaseItems = scanDatabaseEntries()
         local machine = component.gt_machine
         if machine then
             local maxCapacity = tonumber(machine.getEUCapacity()) or 0
@@ -307,9 +431,11 @@ local function main()
             local percentage = math.min(currentEnergy / math.max(maxCapacity, 1), 1)
 
             for _, entry in ipairs(glassesList) do
-                local ui = entry.ui
                 local cfg = entry.cfg
                 local pos = layout(cfg)
+                local ui = setupGlass(entry.device, cfg, databaseItems)
+                entry.ui = ui
+
                 local currTextScale = cfg.fontSize / 1.3
                 local maxRate = cfg.expectedMaxChargeRate or 0
                 local chargeSuffix, dischargePrefix = flowArrows(avgEnergyInput, avgEnergyOutput, maxRate)
@@ -338,10 +464,18 @@ local function main()
                     emptyText = "Empty in: " .. timeToEmpty
                 end
                 updateTextLabel(ui.textStatus, emptyText, pos.b2, pos.statusY, cfg.fontSize, false)
+
+                for _, item in ipairs(ui.inventory or {}) do
+                    local count = readStackCount(component.database.get(item.slot))
+                    updateTextLabel(item.text, formatCompactNumber(count),
+                        item.text.getPosition() and (item.text.getPosition()) or 0,
+                        item.text.getPosition() and (select(2, item.text.getPosition())) or 0,
+                        cfg.fontSize / 1.2, false)
+                end
             end
         end
 
-        os.sleep(1)
+        os.sleep(5)
     end
 end
 
