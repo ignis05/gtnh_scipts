@@ -1,5 +1,9 @@
 local component = require("component")
 local os = require("os")
+local sides = require("sides")
+
+-- Redstone side used to enable charging (OC sides: 0 bottom, 1 top, 2 back, 3 front, 4 right, 5 left).
+local redstoneSide = sides.left
 
 local config = {
     -- scale / resolution settings
@@ -429,6 +433,25 @@ local function setupGlass(glasses, cfg, databaseItems)
     return ui
 end
 
+local function setChargingMode(enabled)
+    local rs = component.redstone
+    if not rs then
+        return
+    end
+    rs.setOutput(redstoneSide, enabled and 100 or 0)
+end
+
+local function shouldStartCharging(percentage, avgEnergyOutput, maxRate)
+    if percentage < 0.5 then
+        return true
+    end
+    return avgEnergyOutput > maxRate and percentage < 0.8
+end
+
+local function shouldStopCharging(percentage)
+    return percentage > 0.95
+end
+
 local function updateBar(quad, yBase, height, percent, cfg)
     local leftBottomX = 3.5 * cfg.height
     local leftTopX = 2.5 * cfg.height
@@ -464,6 +487,9 @@ local function main()
         end
     end
 
+    local charging = false
+    setChargingMode(false)
+
     while true do
         local machine = component.gt_machine
         if machine then
@@ -472,6 +498,17 @@ local function main()
             local avgEnergyInput, avgEnergyOutput, timeToEmpty =
                 parseSensorInfo(machine.getSensorInformation())
             local percentage = math.min(currentEnergy / math.max(maxCapacity, 1), 1)
+            local maxRate = config.expectedMaxChargeRate or 0
+
+            if charging then
+                if shouldStopCharging(percentage) then
+                    charging = false
+                    setChargingMode(false)
+                end
+            elseif shouldStartCharging(percentage, avgEnergyOutput, maxRate) then
+                charging = true
+                setChargingMode(true)
+            end
 
             for _, entry in ipairs(glassesList) do
                 local cfg = entry.cfg
