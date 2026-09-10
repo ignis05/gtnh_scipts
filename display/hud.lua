@@ -36,9 +36,9 @@ local config = {
         text = 0x000000,                -- black
         warning = 0xFF0000,             -- red
         chargeChevron = 0x33FF33,       -- green charging arrows
-        dischargeChevron = 0x000000,    -- first (rightmost) discharge arrow
-        dischargeChevronFast = 0xFFFF00,-- second discharge arrow
-        dischargeChevronCritical = 0xFF0000, -- third discharge arrow
+        dischargeChevron = 0x000000,    -- one-arrow discharge state
+        dischargeChevronFast = 0xFFAA00, -- two-arrow discharge state
+        dischargeChevronCritical = 0xFF0000, -- three-arrow discharge state
         itemCountText = 0xFFFFFF,       -- white text for item counts
         itemCountBackground = 0x000000, -- white background for item counts
     },
@@ -317,6 +317,15 @@ local function flowArrows(avgIn, avgOut, maxRate, cfg)
         end
     end
     return chargeCount, dischargeCount
+end
+
+local function dischargeChevronColor(dischargeCount, cfg)
+    if dischargeCount >= 3 then
+        return cfg.colors.dischargeChevronCritical
+    elseif dischargeCount >= 2 then
+        return cfg.colors.dischargeChevronFast
+    end
+    return cfg.colors.dischargeChevron
 end
 
 local function updateTextLabel(label, text, baseX, baseY, scale, alignRight)
@@ -628,13 +637,17 @@ local function main()
                     energyX = pos.currTextX + (dischargeCount + 1) * charWidth
                 end
 
+                local dischargeColor = dischargeChevronColor(dischargeCount, cfg)
                 for i = 1, 3 do
                     local label = ui.textDischarge[i]
                     if i <= dischargeCount then
-                        -- Place from the right: 1=black (closest to energy), 2=yellow, 3=red.
                         local slotFromLeft = dischargeCount - i
                         updateTextLabel(label, "<", pos.currTextX + slotFromLeft * charWidth,
                             pos.textY, currTextScale, false)
+                        if label.setColor then
+                            local r, g, b = RGB(dischargeColor)
+                            label.setColor(r, g, b)
+                        end
                     else
                         updateTextLabel(label, "", pos.currTextX, pos.textY, currTextScale, false)
                     end
