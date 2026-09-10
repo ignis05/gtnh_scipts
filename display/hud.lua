@@ -35,6 +35,10 @@ local config = {
         fill = 0x00A6FF,                -- cyan fill / percent
         text = 0x000000,                -- black
         warning = 0xFF0000,             -- red
+        chargeChevron = 0x33FF33,       -- green charging arrows
+        dischargeChevron = 0x000000,    -- first (rightmost) discharge arrow
+        dischargeChevronFast = 0xFFFF00,-- second discharge arrow
+        dischargeChevronCritical = 0xFF0000, -- third discharge arrow
         itemCountText = 0xFFFFFF,       -- white text for item counts
         itemCountBackground = 0x000000, -- white background for item counts
     },
@@ -292,27 +296,27 @@ local function parseSensorInfo(info)
 end
 
 local function flowArrows(avgIn, avgOut, maxRate, cfg)
-    local chargeThreshold = (cfg and cfg.fashChargeThreshold) or 0.8
-    local dischargeThreshold = (cfg and cfg.fashDischargeThreshold) or 0.5
+    local chargeThreshold = (cfg and cfg.fastChargeThreshold) or 0.8
+    local dischargeThreshold = (cfg and cfg.fastDischargeThreshold) or 0.5
 
-    local chargeSuffix = ""
+    local chargeCount = 0
     if avgIn > 0 then
-        chargeSuffix = ">"
+        chargeCount = 1
         if avgIn > maxRate * chargeThreshold then
-            chargeSuffix = ">>"
+            chargeCount = 2
         end
     end
-    local dischargePrefix = ""
+    local dischargeCount = 0
     if avgOut > 0 then
-        dischargePrefix = "<"
+        dischargeCount = 1
         if avgOut > maxRate * dischargeThreshold then
-            dischargePrefix = "<<"
+            dischargeCount = 2
         end
         if avgOut > maxRate then
-            dischargePrefix = "<<<"
+            dischargeCount = 3
         end
     end
-    return chargeSuffix, dischargePrefix
+    return chargeCount, dischargeCount
 end
 
 local function updateTextLabel(label, text, baseX, baseY, scale, alignRight)
@@ -403,6 +407,19 @@ local function setupGlass(glasses, cfg, databaseItems)
 
     ui.textPercent = newText(glasses, "0.0%", pos.percentX, pos.percentY, cfg.fontSize, colors.fill)
     ui.textCurr = newText(glasses, "", pos.currTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
+    ui.textDischarge = {}
+    local dischargeColors = {
+        colors.dischargeChevron,
+        colors.dischargeChevronFast,
+        colors.dischargeChevronCritical,
+    }
+    for i = 1, 3 do
+        ui.textDischarge[i] = newText(glasses, "", pos.currTextX, pos.textY, cfg.fontSize / 1.3, dischargeColors[i])
+    end
+    ui.textCharge = {}
+    for i = 1, 2 do
+        ui.textCharge[i] = newText(glasses, "", pos.currTextX, pos.textY, cfg.fontSize / 1.3, colors.chargeChevron)
+    end
     ui.textMax = newText(glasses, "", pos.maxTextX, pos.textY, cfg.fontSize / 1.3, colors.text)
     ui.textStatus = newText(glasses, "", pos.warningX, pos.statusY, cfg.fontSize, colors.warning)
 
@@ -603,14 +620,38 @@ local function main()
 
                 local currTextScale = cfg.fontSize / 1.3
                 local maxRate = cfg.expectedMaxChargeRate or 0
-                local chargeSuffix, dischargePrefix = flowArrows(avgEnergyInput, avgEnergyOutput, maxRate, cfg)
-
+                local chargeCount, dischargeCount = flowArrows(avgEnergyInput, avgEnergyOutput, maxRate, cfg)
+                local charWidth = textOffset("<", currTextScale)
                 local currText = formatNumber(currentEnergy) .. " EU"
-                if dischargePrefix ~= "" then
-                    currText = dischargePrefix .. " " .. currText
+                local energyX = pos.currTextX
+                if dischargeCount > 0 then
+                    energyX = pos.currTextX + (dischargeCount + 1) * charWidth
                 end
-                if chargeSuffix ~= "" then
-                    currText = currText .. " " .. chargeSuffix
+
+                for i = 1, 3 do
+                    local label = ui.textDischarge[i]
+                    if i <= dischargeCount then
+                        -- Place from the right: 1=black (closest to energy), 2=yellow, 3=red.
+                        local slotFromLeft = dischargeCount - i
+                        updateTextLabel(label, "<", pos.currTextX + slotFromLeft * charWidth,
+                            pos.textY, currTextScale, false)
+                    else
+                        updateTextLabel(label, "", pos.currTextX, pos.textY, currTextScale, false)
+                    end
+                end
+
+                local chargeX = energyX + textOffset(currText, currTextScale)
+                if chargeCount > 0 then
+                    chargeX = chargeX + charWidth
+                end
+                for i = 1, 2 do
+                    local label = ui.textCharge[i]
+                    if i <= chargeCount then
+                        updateTextLabel(label, ">", chargeX + (i - 1) * charWidth,
+                            pos.textY, currTextScale, false)
+                    else
+                        updateTextLabel(label, "", pos.currTextX, pos.textY, currTextScale, false)
+                    end
                 end
 
                 updateBar(ui.energyBar, pos.y - cfg.borderBottom, cfg.height, percentage, cfg)
@@ -619,7 +660,7 @@ local function main()
                     pos.percentX, pos.percentY, cfg.fontSize, false)
 
                 updateTextLabel(ui.textCurr, currText,
-                    pos.currTextX, pos.textY, currTextScale, false)
+                    energyX, pos.textY, currTextScale, false)
 
                 updateTextLabel(ui.textMax, formatNumber(maxCapacity) .. " EU",
                     pos.maxTextX, pos.textY, currTextScale, true)
@@ -630,11 +671,11 @@ local function main()
 
                 if showEmptyInMode == "always" then
                     emptyText = "Empty in: " .. timeToEmpty
-                    if dischargePrefix == "<<<" then
+                    if dischargeCount == 3 then
                         emptyTextColor = cfg.colors.warning
                     end
                 elseif showEmptyInMode == "warning" then
-                    if dischargePrefix == "<<<" then
+                    if dischargeCount == 3 then
                         emptyText = "Empty in: " .. timeToEmpty
                         emptyTextColor = cfg.colors.warning
                     end
