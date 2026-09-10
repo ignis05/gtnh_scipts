@@ -13,18 +13,18 @@ local config = {
     showEmptyIn = "warning",        -- | "always" | "warning" | "never". Warning shows it only if discharge speed is faster than configured expectedMaxChargeRate.
 
     -- display customization
-    height = 12,            -- height of the energy bar in pixels
-    length = 168,           -- length of the energy bar in pixels
-    borderBottom = 2,       -- bottom border of the panel in pixels
-    borderTop = 2,          -- top border of the panel in pixels
-    fontSize = 1,           --font size
+    height = 12,                        -- height of the energy bar in pixels
+    length = 168,                       -- length of the energy bar in pixels
+    borderBottom = 2,                   -- bottom border of the panel in pixels
+    borderTop = 2,                      -- top border of the panel in pixels
+    fontSize = 1,                       -- font size
     colors = {
-        border = 0x181828,        -- dark panel
-        empty = 0x5A5A68,         -- gray unfilled capacity
-        fill = 0x00A6FF,          -- cyan fill / percent
-        text = 0x000000,          -- black
-        warning = 0xFF0000,       -- red
-        itemCountText = 0xFFFFFF, -- white text for item counts
+        border = 0x181828,              -- dark panel
+        empty = 0x5A5A68,               -- gray unfilled capacity
+        fill = 0x00A6FF,                -- cyan fill / percent
+        text = 0x000000,                -- black
+        warning = 0xFF0000,             -- red
+        itemCountText = 0xFFFFFF,       -- white text for item counts
         itemCountBackground = 0x000000, -- white background for item counts
     },
     itemCountBackgroundAlpha = 0.42,
@@ -34,6 +34,11 @@ local config = {
 -- Only list fields that differ from `config`.
 local playerConfig = {
     ["monolither"] = {
+        GUIscale = 4,
+        length = 150
+    },
+    ["PrankishWharf"] = {
+        resolution = { 3840, 2160 },
         GUIscale = 4,
         length = 150
     },
