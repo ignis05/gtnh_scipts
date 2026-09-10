@@ -2,6 +2,13 @@ local component = require("component")
 local os = require("os")
 local sides = require("sides")
 
+local COLOR_WHITE = 0xFFFFFF
+local COLOR_GRAY = 0xAAAAAA
+local COLOR_CYAN = 0x00A6FF
+local COLOR_GREEN = 0x33FF33
+local COLOR_RED = 0xFF3333
+local COLOR_ORANGE = 0xFFAA00
+
 -- Redstone side used to enable charging (OC sides: 0 bottom, 1 top, 2 back, 3 front, 4 right, 5 left).
 local redstoneSide = sides.left
 
@@ -441,6 +448,73 @@ local function setChargingMode(enabled)
     rs.setOutput(redstoneSide, enabled and 100 or 0)
 end
 
+local function setupStatusGpu()
+    if not component.isAvailable("gpu") then
+        return nil
+    end
+
+    local gpu = component.gpu
+    local maxW, maxH = gpu.maxResolution()
+    gpu.setResolution(math.min(maxW, 40), math.min(maxH, 12))
+
+    local w, h = gpu.getResolution()
+    gpu.setBackground(0x000000)
+    gpu.setForeground(COLOR_WHITE)
+    gpu.fill(1, 1, w, h, " ")
+    return gpu
+end
+
+local function drawStatusLine(gpu, y, w, label, value, valueColor)
+    gpu.fill(1, y, w, 1, " ")
+    gpu.setForeground(COLOR_GRAY)
+    gpu.set(1, y, label)
+
+    local valueText = tostring(value)
+    gpu.setForeground(valueColor or COLOR_WHITE)
+    gpu.set(math.max(1, w - #valueText + 1), y, valueText)
+end
+
+local function renderStatusScreen(gpu, readings)
+    if not gpu then
+        return
+    end
+
+    local w = gpu.getResolution()
+    gpu.setForeground(COLOR_WHITE)
+    gpu.fill(1, 1, w, 1, " ")
+    gpu.set(1, 1, string.rep("=", w))
+
+    local title = "ENERGY HUD"
+    gpu.set(math.floor((w - #title) / 2) + 1, 2, title)
+
+    gpu.fill(1, 3, w, 1, " ")
+    gpu.set(1, 3, string.rep("=", w))
+
+    local chargingOn = readings.charging
+    local chargingColor = chargingOn and COLOR_GREEN or COLOR_RED
+    local percentColor = readings.percentage < 0.5 and COLOR_RED
+        or (readings.percentage < 0.8 and COLOR_ORANGE or COLOR_CYAN)
+
+    drawStatusLine(gpu, 4, w, "Charge",
+        string.format("%.1f%%", readings.percentage * 100), percentColor)
+    drawStatusLine(gpu, 5, w, "Stored",
+        formatNumber(readings.currentEnergy) .. " EU", COLOR_CYAN)
+    drawStatusLine(gpu, 6, w, "Capacity",
+        formatNumber(readings.maxCapacity) .. " EU", COLOR_WHITE)
+    drawStatusLine(gpu, 7, w, "In",
+        formatNumber(readings.avgEnergyInput) .. " EU/t", COLOR_GREEN)
+    drawStatusLine(gpu, 8, w, "Out",
+        formatNumber(readings.avgEnergyOutput) .. " EU/t", COLOR_ORANGE)
+    drawStatusLine(gpu, 9, w, "Max rate",
+        formatNumber(readings.maxRate) .. " EU/t", COLOR_WHITE)
+    drawStatusLine(gpu, 10, w, "Empty in",
+        tostring(readings.timeToEmpty), COLOR_WHITE)
+    drawStatusLine(gpu, 11, w, "Charging",
+        chargingOn and "ON" or "OFF", chargingColor)
+
+    gpu.setForeground(COLOR_WHITE)
+end
+
 local function shouldStartCharging(percentage, avgEnergyOutput, maxRate)
     if percentage < 0.5 then
         return true
@@ -489,6 +563,7 @@ local function main()
 
     local charging = false
     setChargingMode(false)
+    local statusGpu = setupStatusGpu()
 
     while true do
         local machine = component.gt_machine
@@ -509,6 +584,17 @@ local function main()
                 charging = true
                 setChargingMode(true)
             end
+
+            renderStatusScreen(statusGpu, {
+                maxCapacity = maxCapacity,
+                currentEnergy = currentEnergy,
+                avgEnergyInput = avgEnergyInput,
+                avgEnergyOutput = avgEnergyOutput,
+                timeToEmpty = timeToEmpty,
+                percentage = percentage,
+                maxRate = maxRate,
+                charging = charging,
+            })
 
             for _, entry in ipairs(glassesList) do
                 local cfg = entry.cfg
