@@ -18,7 +18,7 @@ local config = {
     GUIscale = 3,                -- match the one from minecraft settings
 
     -- energy flow settings
-    expectedMaxChargeRate = 320000, -- should match expected charge rate when all power sources are running at full efficientcy
+    expectedMaxChargeRate = 1036000, -- should match expected charge rate when all power sources are running at full efficientcy
     fastChargeThreshold = 0.8,      -- will show second chevron when charge speed exceeds this fraction
     fastDischargeThreshold = 0.5,   -- will show second chevron when discharge speed exceeds this fraction
     showEmptyIn = "warning",        -- | "always" | "warning" | "never". Warning shows it only if discharge speed is faster than configured expectedMaxChargeRate.
