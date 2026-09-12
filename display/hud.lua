@@ -50,12 +50,15 @@ local config = {
 local playerConfig = {
     ["monolither"] = {
         GUIscale = 4,
-        length = 150
+        length = 150,
     },
     ["PrankishWharf"] = {
         resolution = { 3840, 2160 },
         GUIscale = 4,
-        length = 150
+        length = 150,
+    },
+    ["MicroV4"] = {
+        GUIscale = 2,
     },
 }
 
