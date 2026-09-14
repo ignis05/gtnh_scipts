@@ -12,12 +12,12 @@ local maintainList = {}
 for _, color in ipairs(COLORS) do
     table.insert(maintainList, {
         label = "ME Covered Cable - " .. color,
-        target = 264,
+        target = 512,
         batch = 24
     })
     table.insert(maintainList, {
         label = "ME Dense Covered Cable - " .. color,
-        target = 32,
+        target = 128,
         batch = 8
     })
 end
