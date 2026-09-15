@@ -484,7 +484,7 @@ local function setupStatusGpu()
 
     local gpu = component.gpu
     local maxW, maxH = gpu.maxResolution()
-    gpu.setResolution(math.min(maxW, 40), math.min(maxH, 12))
+    gpu.setResolution(math.min(maxW, 160), math.min(maxH, 48))
 
     local w, h = gpu.getResolution()
     gpu.setBackground(0x000000)
