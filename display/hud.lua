@@ -691,7 +691,7 @@ local function main()
                         emptyTextColor = cfg.colors.warning
                     end
                 elseif showEmptyInMode == "warning" then
-                    if dischargeCount == 3 then
+                    if dischargeCount == 3 and timeToEmpty and timeToEmpty ~= 0 then
                         emptyText = "Empty in: " .. timeToEmpty
                         emptyTextColor = cfg.colors.warning
                     end
