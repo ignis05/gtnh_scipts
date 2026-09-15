@@ -1,6 +1,7 @@
 local component = require("component")
 local os = require("os")
 local sides = require("sides")
+local computer = require("computer")
 
 local COLOR_WHITE = 0xFFFFFF
 local COLOR_GRAY = 0xAAAAAA
@@ -609,10 +610,17 @@ local function main()
                     charging = false
                     setChargingMode(false)
                 end
-            elseif shouldStartCharging(percentage, avgEnergyOutput, maxRate) then
-                charging = true
-                setChargingMode(true)
+            else 
+                if shouldStartCharging(percentage, avgEnergyOutput, maxRate) then
+                    charging = true
+                    setChargingMode(true)
+                elseif computer.uptime() > 900 then
+                    -- if not charging and running for over 15 minutes
+                    -- shutdown to be auto-restarted and refresh everything
+                    computer.shutdown()
+                end
             end
+            
 
             renderStatusScreen(statusGpu, {
                 maxCapacity = maxCapacity,
