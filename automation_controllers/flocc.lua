@@ -94,6 +94,17 @@ local halted_reason = nil
 -- of the next completed cycle silently starting a new run anyway.
 local stop_requested = false
 
+-- Latches true the moment we observe isMachineActive() go false while
+-- in cooldown. This is an edge we capture ONCE and remember, rather
+-- than something we must catch on a matching poll -- a plain level
+-- read of "not active" can be true again by the time we poll if a
+-- new cycle has already auto-started, and a progress-reset dip can
+-- be missed entirely if completion and reset land on the same tick.
+-- Latching means we only need to see "not active" on ANY single poll
+-- since cooldown began, even if it's already "active" again by the
+-- very next one.
+local seen_inactive_since_cooldown = false
+
 --------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------
@@ -156,12 +167,24 @@ local function set_redstone(level)
 end
 
 local function start_run()
+    -- Hard guard: never begin a fill while the machine is mid-operation.
+    -- Without this, a stray S press, a script relaunch while the
+    -- machine happens to be running, or a new cycle auto-starting in
+    -- the gap between our last "inactive" observation and now could
+    -- all result in pumping into an operation that's already underway
+    -- -- breaking the once-per-operation guarantee this script exists
+    -- to enforce.
+    if machine_active() then
+        halted_reason = "refused to start -- machine is already active"
+        return false
+    end
     stop_requested = false
     state = "pumping"
     run_start_time = computer.uptime()
     liters_delivered = 0
     halted_reason = nil
     set_redstone(CONFIG.redstone_on)
+    return true
 end
 
 local function stop_pump(reason, completed_fill)
@@ -174,6 +197,7 @@ local function stop_pump(reason, completed_fill)
         -- can be re-armed, so it's impossible to fill twice in one op.
         state = "cooldown"
         last_seen_progress = nil -- start tracking fresh from this point
+        seen_inactive_since_cooldown = false
     else
         state = "idle"
     end
@@ -206,20 +230,26 @@ local function tick()
             stop_pump(string.format("target of %d L reached", CONFIG.target_liters), true)
         end
     elseif state == "cooldown" then
-        -- Re-arm only once we've actually observed the cycle end: either
-        -- the controller reports not-active, or we caught progress reset
-        -- back down (the tell-tale sign of a completed cycle, even if we
-        -- never happened to poll it sitting exactly at max).
+        -- Re-arm once we've observed the cycle end. We latch "seen
+        -- inactive" rather than requiring active==false on the SAME poll
+        -- that decides readiness: if the machine finishes and a new
+        -- cycle auto-starts within one poll interval, a plain level read
+        -- could catch active==true again and we'd wait a full extra
+        -- cycle. The progress-reset check remains a secondary signal for
+        -- builds/cases where active never reads false at all.
         local active = machine_active()
+        if not active then
+            seen_inactive_since_cooldown = true
+        end
         local reset_seen = machine_cycle_reset_detected()
 
         local ready
         if reset_seen ~= nil then
-            ready = (not active) or reset_seen
+            ready = seen_inactive_since_cooldown or reset_seen
         else
             -- getWorkProgress unavailable on this build -- fall back to
-            -- "not active" alone.
-            ready = not active
+            -- the latched inactive flag alone.
+            ready = seen_inactive_since_cooldown
         end
 
         if ready then
@@ -227,8 +257,13 @@ local function tick()
                 state = "idle"
                 halted_reason = "operation cycle complete -- stopped by operator"
             else
-                halted_reason = "operation cycle complete -- starting next fill"
-                start_run()
+                -- If start_run() refuses (machine active again already), stay
+                -- in cooldown and keep re-checking -- do NOT fall through to
+                -- idle, since that would let a manual S race against a cycle
+                -- that's already secretly running.
+                if start_run() then
+                    halted_reason = "operation cycle complete -- starting next fill"
+                end
             end
         end
     end
