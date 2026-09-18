@@ -32,7 +32,7 @@ local CONFIG         = {
     ui_refresh       = 0.25,
 
     -- Redstone side wired to the pump
-    redstone_side    = sides.south,
+    redstone_side    = sides.west,
     redstone_on      = 15,
     redstone_off     = 0,
 
