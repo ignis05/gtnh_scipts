@@ -36,9 +36,9 @@ local CONFIG         = {
     redstone_on      = 15,
     redstone_off     = 0,
 
-    -- Pump throughput: 100,000 L every 5 ticks while redstone is high.
-    liters_per_batch = 100000,
-    ticks_per_batch  = 5,
+    -- Pump throughput: 200,000 L every 10 ticks while redstone is high.
+    liters_per_batch = 200000,
+    ticks_per_batch  = 10,
 
     -- Total volume to insert per run before shutting the pump off.
     target_liters    = 1000000,
@@ -150,15 +150,14 @@ local function set_redstone(level)
     last_redstone = level
 end
 
-local function start_run()
-    -- Hard guard: never begin a fill while the machine is mid-operation.
-    -- Without this, a stray S press, a script relaunch while the
-    -- machine happens to be running, or a new cycle auto-starting in
-    -- the gap between our last "inactive" observation and now could
-    -- all result in pumping into an operation that's already underway
-    -- -- breaking the once-per-operation guarantee this script exists
-    -- to enforce.
-    if machine_active() then
+local function start_run(skip_active_guard)
+    -- Hard guard: never begin a fill while the machine is mid-operation,
+    -- UNLESS we're re-arming immediately after confirming the previous
+    -- cycle just finished (skip_active_guard) -- on this build, active
+    -- can read true continuously across the boundary where one cycle
+    -- ends and the next begins on the same tick, so insisting on
+    -- active==false at that exact moment would refuse forever.
+    if not skip_active_guard and machine_active() then
         halted_reason = "refused to start -- machine is already active"
         return false
     end
@@ -215,12 +214,19 @@ local function tick()
             stop_pump(string.format("target of %d L reached", CONFIG.target_liters), true)
         end
     elseif state == "cooldown" then
-        -- We must observe the machine genuinely START (active go true)
-        -- before we can trust it going inactive as "finished". On this
-        -- build, isMachineActive() reads false and getWorkProgress()
-        -- reads 0 even at genuine idle -- so without this start-confirm
-        -- step, cooldown would look "already finished" on its very first
-        -- poll, before the machine ever picked up the delivered liquid.
+        -- We must observe the machine genuinely START before we can
+        -- detect "finished". On this build:
+        --   - isMachineActive() reads false/0-progress even at genuine
+        --     idle, so seeing "active" alone isn't enough to prove a
+        --     cycle ran -- we also need to see progress move.
+        --   - isMachineActive() can stay true continuously across the
+        --     boundary between one cycle ending and the next starting
+        --     (same-tick handoff), so "active goes false" is NOT a safe
+        --     finish signal on this build -- it may never happen.
+        -- The one signal that reliably survives a same-tick handoff is
+        -- getWorkProgress() resetting back down after having climbed --
+        -- that drop can only happen because one cycle ended, regardless
+        -- of what "active" does at that instant.
         local active = machine_active()
         local progress = safe_call(machine.getWorkProgress)
         if progress and progress > highest_progress_seen then
@@ -228,17 +234,16 @@ local function tick()
         end
 
         if cooldown_phase == "waiting_for_start" then
-            if active then
-                -- Confirmed: the machine has genuinely begun this operation.
+            -- Require BOTH active AND real nonzero progress, so a build
+            -- quirk where active flickers true without real work can't
+            -- fool us into thinking a cycle began.
+            if active and progress and progress > 0 then
                 cooldown_phase = "waiting_for_finish"
                 halted_reason = "machine started operation -- waiting for it to finish"
             elseif computer.uptime() - cooldown_start_time > START_TIMEOUT_SECONDS then
-                -- Never saw it start within the timeout. Per your instruction:
-                -- don't assume anything finished -- just re-check the flag
-                -- again rather than looping. We do this by resetting our own
-                -- timeout window and trying again, so we keep waiting
-                -- indefinitely at a sane pace instead of firing a new fill
-                -- blind.
+                -- Never saw it start within the timeout. Don't assume
+                -- anything finished -- just keep re-checking at a sane pace
+                -- instead of firing a new fill blind.
                 cooldown_start_time = computer.uptime()
                 halted_reason = string.format(
                     "still waiting for machine to start (%ds, re-checking)",
@@ -246,16 +251,32 @@ local function tick()
             end
             -- else: still waiting, nothing to do this tick.
         elseif cooldown_phase == "waiting_for_finish" then
-            if not active then
-                -- Machine was confirmed active and has now gone inactive --
-                -- a genuine, evidenced completion, not an assumption.
+            -- Completion signal: progress has dropped back down from the
+            -- highest value we've seen this cycle. This is the ONE signal
+            -- that still fires even when active stays true the whole way
+            -- through a same-tick finish-then-restart handoff.
+            local progress_reset = progress and progress < highest_progress_seen
+
+            if progress_reset then
                 if stop_requested then
                     state = "idle"
                     halted_reason = "operation cycle complete -- stopped by operator"
                 else
-                    -- If start_run() refuses (machine somehow active again
-                    -- already), stay in cooldown and keep re-checking rather
-                    -- than falling through to idle and racing a manual S.
+                    -- Confirmed finish (progress reset) -- skip the active
+                    -- guard, since active may already read true for the new
+                    -- cycle that just began on this same tick.
+                    if start_run(true) then
+                        halted_reason = "operation cycle complete -- starting next fill"
+                    end
+                end
+            elseif not active and not (progress and progress > 0) then
+                -- Fallback: if progress reporting is unavailable/unreliable
+                -- (nil, or stuck at 0) but active did drop to false, honor
+                -- that as completion too -- better than waiting forever.
+                if stop_requested then
+                    state = "idle"
+                    halted_reason = "operation cycle complete -- stopped by operator"
+                else
                     if start_run() then
                         halted_reason = "operation cycle complete -- starting next fill"
                     end
