@@ -95,32 +95,10 @@ local last_seen_progress = nil -- tracks getWorkProgress() across ticks
 -- HELPERS
 --------------------------------------------------------------------
 
-local function safe_call(fn, ...)
-    local ok, result = pcall(fn, ...)
-    if ok then return result else return nil end
-end
-
-local function machine_has_problem()
-    local hasProblems = safe_call(machine.hasProblems)
-    if hasProblems ~= nil then return hasProblems end
-
-    local sensor = safe_call(machine.getSensorInformation)
-    if sensor then
-        for _, line in ipairs(sensor) do
-            local l = tostring(line):lower()
-            if l:find("problem") or l:find("issue") or l:find("wrench")
-                or l:find("screwdriver") or l:find("maintenance") then
-                return true
-            end
-        end
-    end
-    return false
-end
-
 -- True while the controller is actively running an operation cycle.
 local function machine_active()
     local active = machine.isMachineActive()
-    if active ~= nil then return active end
+    if active == true then return active end
     return false -- unknown -- treat as not-active rather than block forever
 end
 
@@ -183,14 +161,6 @@ local function tick()
     if state == "pumping" then
         local elapsed = computer.uptime() - run_start_time
 
-        if CONFIG.halt_on_problem and machine_has_problem() then
-            -- Aborted mid-fill due to a fault: does NOT count as a
-            -- completed operation, so no cooldown -- go straight to idle
-            -- so it can be retried once the fault clears.
-            stop_pump("machine problem/maintenance flag", false)
-            return
-        end
-
         -- Liters delivered so far, capped at the target for display purposes.
         liters_delivered = math.min(
             CONFIG.target_liters,
@@ -240,7 +210,7 @@ local function draw()
         print(("Remaining    : %.2fs"):format(remaining))
     elseif state == "cooldown" then
         local active = machine_active()
-        local progress = safe_call(machine.getWorkProgress)
+        local progress = machine.getWorkProgress()
         print(("Machine active : %s"):format(active and "yes" or "no"))
         if progress then
             print(("Work progress  : %s (watching for reset)"):format(tostring(progress)))
