@@ -119,7 +119,7 @@ end
 
 -- True while the controller is actively running an operation cycle.
 local function machine_active()
-    local active = safe_call(machine.isMachineActive)
+    local active = machine.isMachineActive()
     if active ~= nil then return active end
     return false -- unknown -- treat as not-active rather than block forever
 end
@@ -132,7 +132,7 @@ end
 -- down from where it was, which only happens when one cycle ends and
 -- (at earliest) the next begins. Returns nil if unavailable.
 local function machine_cycle_reset_detected()
-    local progress = safe_call(machine.getWorkProgress)
+    local progress = machine.getWorkProgress()
     if progress == nil then
         last_seen_progress = nil
         return nil -- unknown
