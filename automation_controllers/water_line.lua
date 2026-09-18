@@ -89,7 +89,10 @@ local run_start_time = nil
 local liters_delivered = 0
 local last_redstone = nil
 local halted_reason = nil
-local last_seen_progress = nil -- tracks getWorkProgress() across ticks
+-- Set true once the operator explicitly stops the loop. Checked
+-- before every auto re-arm so a stop request actually sticks instead
+-- of the next completed cycle silently starting a new run anyway.
+local stop_requested = false
 
 --------------------------------------------------------------------
 -- HELPERS
@@ -153,6 +156,7 @@ local function set_redstone(level)
 end
 
 local function start_run()
+    stop_requested = false
     state = "pumping"
     run_start_time = computer.uptime()
     liters_delivered = 0
@@ -219,8 +223,13 @@ local function tick()
         end
 
         if ready then
-            state = "idle"
-            halted_reason = "operation cycle complete -- ready to re-arm"
+            if stop_requested then
+                state = "idle"
+                halted_reason = "operation cycle complete -- stopped by operator"
+            else
+                halted_reason = "operation cycle complete -- starting next fill"
+                start_run()
+            end
         end
     end
 end
@@ -259,9 +268,14 @@ local function draw()
     if state == "idle" then
         print("Press S to start a run, Q to quit.")
     elseif state == "pumping" then
-        print("Press X to abort the run early, Q to quit.")
+        print("Press X to stop the loop, Q to quit.")
     else -- cooldown
-        print("Machine operation in progress -- input locked. Press Q to quit.")
+        if stop_requested then
+            print("Stopping after this cycle. Press Q to quit.")
+        else
+            print("Machine operation in progress -- next fill auto-starts when done.")
+            print("Press X to stop the loop, Q to quit.")
+        end
     end
 end
 
@@ -271,6 +285,11 @@ end
 
 local function main()
     local running = true
+
+    -- Sequence starts automatically the moment the script launches --
+    -- no need to press S.
+    start_run()
+
     while running do
         tick()
         draw()
@@ -282,8 +301,18 @@ local function main()
                 running = false
             elseif ch == "s" and state == "idle" then
                 start_run()
-            elseif ch == "x" and state == "pumping" then
-                stop_pump("aborted by operator", false)
+            elseif ch == "x" and (state == "pumping" or state == "cooldown") then
+                -- Stop the loop. If mid-fill, cut the pump immediately. If
+                -- mid-cooldown (waiting on the machine's own cycle), just
+                -- flag that we should NOT auto-start the next fill once the
+                -- cycle finishes -- we can't interrupt the machine's cycle
+                -- itself, only decline to feed it again.
+                stop_requested = true
+                if state == "pumping" then
+                    stop_pump("aborted by operator", false)
+                else
+                    halted_reason = "stop requested -- will halt after this cycle"
+                end
             end
         end
     end
