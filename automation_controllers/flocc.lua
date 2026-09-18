@@ -8,12 +8,12 @@
 -- the tank. The pump moves 100,000 L per 5 ticks WHILE redstone is
 -- held high, continuously, for as long as the signal stays on.
 --
--- Operation-cycle detection uses the controller directly:
---   isMachineActive()  -- is the machine currently running a cycle
---   getWorkProgress()  -- ticks into the current cycle
--- The input re-arms only once the machine reports not-active OR we
--- observe progress reset back down (a completed cycle), so a fill
--- can never be started twice within one operation.
+-- Operation-cycle detection uses the controller directly via
+-- isMachineActive(). The input re-arms only after we've evidenced
+-- BOTH a genuine start (active goes true) AND a genuine finish
+-- (active goes false again afterward) -- so a fill can never be
+-- started twice within one operation, and completion is never
+-- assumed just because the machine reads idle/inactive.
 --------------------------------------------------------------------
 
 local component      = require("component")
@@ -32,7 +32,7 @@ local CONFIG         = {
     ui_refresh       = 0.25,
 
     -- Redstone side wired to the pump
-    redstone_side    = sides.west,
+    redstone_side    = sides.south,
     redstone_on      = 15,
     redstone_off     = 0,
 
@@ -82,8 +82,11 @@ local redstone = component.redstone
 -- "idle"     : machine not active, not mid-cycle -- a run can be started
 -- "pumping"  : pump on, timing the fill batch
 -- "cooldown" : fill finished; waiting for the machine's operation
---              cycle (isMachineActive / getWorkProgress) to actually
---              finish before re-arming
+--              cycle to genuinely run to completion before re-arming.
+--              Has two sub-phases (cooldown_phase below):
+--                "waiting_for_start"  -- machine hasn't begun yet
+--                "waiting_for_finish" -- machine confirmed active,
+--                                        now waiting for it to finish
 local state = "idle"
 local run_start_time = nil
 local liters_delivered = 0
@@ -94,16 +97,19 @@ local halted_reason = nil
 -- of the next completed cycle silently starting a new run anyway.
 local stop_requested = false
 
--- Latches true the moment we observe isMachineActive() go false while
--- in cooldown. This is an edge we capture ONCE and remember, rather
--- than something we must catch on a matching poll -- a plain level
--- read of "not active" can be true again by the time we poll if a
--- new cycle has already auto-started, and a progress-reset dip can
--- be missed entirely if completion and reset land on the same tick.
--- Latching means we only need to see "not active" on ANY single poll
--- since cooldown began, even if it's already "active" again by the
--- very next one.
-local seen_inactive_since_cooldown = false
+-- Sub-phase within "cooldown". We MUST observe the machine actually
+-- go active before we can trust it going inactive as "finished" --
+-- otherwise a machine that reads inactive/0 progress at idle (as
+-- confirmed on this build) would look "already finished" the instant
+-- cooldown begins, before it ever really ran. See cooldown_phase.
+local cooldown_phase = nil -- "waiting_for_start" | "waiting_for_finish"
+local cooldown_start_time = nil
+local highest_progress_seen = 0
+
+-- How long to wait for the machine to start picking up the delivered
+-- liquid before we give up waiting and just re-check periodically.
+-- (Guards against a stuck/never-true active flag hanging forever.)
+local START_TIMEOUT_SECONDS = 30
 
 --------------------------------------------------------------------
 -- HELPERS
@@ -136,28 +142,6 @@ local function machine_active()
     local active = safe_call(machine.isMachineActive)
     if active ~= nil then return active end
     return false -- unknown -- treat as not-active rather than block forever
-end
-
--- True once the current cycle has genuinely finished. We can't trust
--- a single reading of "progress >= max" -- on a skipped/lagged tick,
--- the machine can jump straight from mid-cycle progress to 0 (the
--- next cycle already starting) without us ever polling it AT max.
--- So instead we watch for the actual reset: progress dropping back
--- down from where it was, which only happens when one cycle ends and
--- (at earliest) the next begins. Returns nil if unavailable.
-local function machine_cycle_reset_detected()
-    local progress = safe_call(machine.getWorkProgress)
-    if progress == nil then
-        last_seen_progress = nil
-        return nil -- unknown
-    end
-
-    local reset = false
-    if last_seen_progress ~= nil and progress < last_seen_progress then
-        reset = true
-    end
-    last_seen_progress = progress
-    return reset
 end
 
 local function set_redstone(level)
@@ -196,8 +180,9 @@ local function stop_pump(reason, completed_fill)
         -- controller itself to report the cycle as finished before this
         -- can be re-armed, so it's impossible to fill twice in one op.
         state = "cooldown"
-        last_seen_progress = nil -- start tracking fresh from this point
-        seen_inactive_since_cooldown = false
+        cooldown_phase = "waiting_for_start"
+        cooldown_start_time = computer.uptime()
+        highest_progress_seen = 0
     else
         state = "idle"
     end
@@ -230,41 +215,53 @@ local function tick()
             stop_pump(string.format("target of %d L reached", CONFIG.target_liters), true)
         end
     elseif state == "cooldown" then
-        -- Re-arm once we've observed the cycle end. We latch "seen
-        -- inactive" rather than requiring active==false on the SAME poll
-        -- that decides readiness: if the machine finishes and a new
-        -- cycle auto-starts within one poll interval, a plain level read
-        -- could catch active==true again and we'd wait a full extra
-        -- cycle. The progress-reset check remains a secondary signal for
-        -- builds/cases where active never reads false at all.
+        -- We must observe the machine genuinely START (active go true)
+        -- before we can trust it going inactive as "finished". On this
+        -- build, isMachineActive() reads false and getWorkProgress()
+        -- reads 0 even at genuine idle -- so without this start-confirm
+        -- step, cooldown would look "already finished" on its very first
+        -- poll, before the machine ever picked up the delivered liquid.
         local active = machine_active()
-        if not active then
-            seen_inactive_since_cooldown = true
-        end
-        local reset_seen = machine_cycle_reset_detected()
-
-        local ready
-        if reset_seen ~= nil then
-            ready = seen_inactive_since_cooldown or reset_seen
-        else
-            -- getWorkProgress unavailable on this build -- fall back to
-            -- the latched inactive flag alone.
-            ready = seen_inactive_since_cooldown
+        local progress = safe_call(machine.getWorkProgress)
+        if progress and progress > highest_progress_seen then
+            highest_progress_seen = progress
         end
 
-        if ready then
-            if stop_requested then
-                state = "idle"
-                halted_reason = "operation cycle complete -- stopped by operator"
-            else
-                -- If start_run() refuses (machine active again already), stay
-                -- in cooldown and keep re-checking -- do NOT fall through to
-                -- idle, since that would let a manual S race against a cycle
-                -- that's already secretly running.
-                if start_run() then
-                    halted_reason = "operation cycle complete -- starting next fill"
+        if cooldown_phase == "waiting_for_start" then
+            if active then
+                -- Confirmed: the machine has genuinely begun this operation.
+                cooldown_phase = "waiting_for_finish"
+                halted_reason = "machine started operation -- waiting for it to finish"
+            elseif computer.uptime() - cooldown_start_time > START_TIMEOUT_SECONDS then
+                -- Never saw it start within the timeout. Per your instruction:
+                -- don't assume anything finished -- just re-check the flag
+                -- again rather than looping. We do this by resetting our own
+                -- timeout window and trying again, so we keep waiting
+                -- indefinitely at a sane pace instead of firing a new fill
+                -- blind.
+                cooldown_start_time = computer.uptime()
+                halted_reason = string.format(
+                    "still waiting for machine to start (%ds, re-checking)",
+                    START_TIMEOUT_SECONDS)
+            end
+            -- else: still waiting, nothing to do this tick.
+        elseif cooldown_phase == "waiting_for_finish" then
+            if not active then
+                -- Machine was confirmed active and has now gone inactive --
+                -- a genuine, evidenced completion, not an assumption.
+                if stop_requested then
+                    state = "idle"
+                    halted_reason = "operation cycle complete -- stopped by operator"
+                else
+                    -- If start_run() refuses (machine somehow active again
+                    -- already), stay in cooldown and keep re-checking rather
+                    -- than falling through to idle and racing a manual S.
+                    if start_run() then
+                        halted_reason = "operation cycle complete -- starting next fill"
+                    end
                 end
             end
+            -- else: still running, nothing to do this tick.
         end
     end
 end
@@ -285,9 +282,11 @@ local function draw()
     elseif state == "cooldown" then
         local active = machine_active()
         local progress = safe_call(machine.getWorkProgress)
+        print(("Cooldown phase : %s"):format(cooldown_phase))
         print(("Machine active : %s"):format(active and "yes" or "no"))
+        print(("Highest progress seen : %s"):format(tostring(highest_progress_seen)))
         if progress then
-            print(("Work progress  : %s (watching for reset)"):format(tostring(progress)))
+            print(("Work progress  : %s"):format(tostring(progress)))
         else
             print("Work progress  : unavailable on this build")
         end
@@ -306,9 +305,12 @@ local function draw()
         print("Press X to stop the loop, Q to quit.")
     else -- cooldown
         if stop_requested then
-            print("Stopping after this cycle. Press Q to quit.")
+            print("Stopping after the current operation finishes. Press Q to quit.")
+        elseif cooldown_phase == "waiting_for_start" then
+            print("Waiting for machine to start its operation cycle.")
+            print("Press X to stop the loop, Q to quit.")
         else
-            print("Machine operation in progress -- next fill auto-starts when done.")
+            print("Machine is running -- next fill auto-starts when it finishes.")
             print("Press X to stop the loop, Q to quit.")
         end
     end
